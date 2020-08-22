@@ -1,0 +1,12 @@
+networkx==2.4
+matplotlib==3.1.0
+pandas
+scikit-learn
+seaborn
+requests
+tensorflow==2.1
+scipy==1.4.1
+
+[full]
+pandas
+tqdm
