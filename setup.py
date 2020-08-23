@@ -5,7 +5,8 @@ import sys
 from setuptools import setup, find_packages
 
 install_requires = ["networkx==2.4", "matplotlib==3.1.0", "pandas", "scikit-learn",
-                    "seaborn", "requests", "tensorflow==2.1", "scipy==1.4.1", "numpy"]
+                    "seaborn", "requests", "tensorflow==2.1", "scipy==1.4.1", "numpy",
+                    'gensim==3.8.3', "mordred==1.2.0", "tqdm"]
 
 if sys.version_info < (3, 4, 0):
     install_requires.append("enum34")
@@ -37,7 +38,7 @@ setup(
     license="BSD-3-Clause",
     author="Xin (Belter) Xiong",
     author_email="onlybelter@outlook.com",
-    url="https://github.com/mordred-descriptor/mordred",
+    url="",
     platforms=["any"],
     keywords="QSAR chemoinformatics",
     packages=find_packages(),
