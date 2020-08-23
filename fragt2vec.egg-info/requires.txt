@@ -6,6 +6,10 @@ seaborn
 requests
 tensorflow==2.1
 scipy==1.4.1
+numpy
+gensim==3.8.3
+mordred==1.2.0
+tqdm
 
 [full]
 pandas

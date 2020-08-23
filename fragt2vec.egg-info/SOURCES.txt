@@ -25,11 +25,13 @@ fragt2vec/Tandem2vec/fragment/vocab.py
 fragt2vec/Tandem2vec/tandem2vec/__init__.py
 fragt2vec/Tandem2vec/tandem2vec/frag2vec.py
 fragt2vec/Tandem2vec/tandem2vec/helper_func.py
-fragt2vec/_base/__init__.py
-fragt2vec/_base/pub_func.py
 fragt2vec/_prepare_data/__init__.py
 fragt2vec/_prepare_data/pub_func.py
 fragt2vec/_prepare_data/s1_get_SMILES.py
 fragt2vec/_prepare_data/s2_filter_mol.py
 fragt2vec/_prepare_data/s3_map_SMILES_by_cid.py
 fragt2vec/tests/__init__.py
+fragt2vec/utility/__init__.py
+fragt2vec/utility/draw_mol.py
+fragt2vec/utility/pub_func.py
+fragt2vec/utility/query_nearest_neighbors.py
