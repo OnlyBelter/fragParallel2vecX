@@ -1,7 +1,9 @@
+import time
 import datetime
 import pandas as pd
 from tqdm import tqdm
 import rdkit.Chem as Chem
+from sklearn.manifold import TSNE
 from mordred import Calculator, descriptors
 
 
@@ -100,7 +102,7 @@ def _read_corpus(file_name):
         yield line.split()
 
 
-def insert_unk(corpus, out_corpus, threshold=3, uncommon='UNK'):
+def insert_unk(corpus, out_corpus, threshold=3, uncommon='UNK', need_replace_list=()):
     """
     Handling of uncommon "words" (i.e. identifiers).
     It finds all least common identifiers (defined by threshold) and replaces them by 'uncommon' string.
@@ -115,6 +117,8 @@ def insert_unk(corpus, out_corpus, threshold=3, uncommon='UNK'):
         Number of identifier occurrences to consider it uncommon, <= this threshold
     uncommon : str
         String to use to replace uncommon words/identifiers
+    need_replace_list: tuple
+        replace "words" in this list by uncommon
 
     Returns
     -------
@@ -135,6 +139,8 @@ def insert_unk(corpus, out_corpus, threshold=3, uncommon='UNK'):
 
     f = open(corpus)
     fw = open(out_corpus, mode='w')
+    if len(need_replace_list) >= 1:
+        least_common.update(need_replace_list)
     for line in tqdm(_read_corpus(f), total=n_lines, desc='Inserting %s' % uncommon):
         intersection = set(line) & least_common
         if len(intersection) > 0:
@@ -151,3 +157,14 @@ def insert_unk(corpus, out_corpus, threshold=3, uncommon='UNK'):
     fw.close()
 
 
+def reduce_by_tsne(x, n_jobs=4):
+    t0 = time.time()
+    tsne = TSNE(n_components=2, n_jobs=n_jobs, learning_rate=200,
+                n_iter=2000, random_state=42, init='pca', verbose=1)
+    X_reduced_tsne = tsne.fit_transform(x)
+    # X_reduced_tsne = tsne.fit(x)
+    print(X_reduced_tsne.shape)
+    # np.save('X_reduced_tsne_pca_first', X_reduced_tsne2)
+    t1 = time.time()
+    print("t-SNE took {:.1f}s.".format(t1 - t0))
+    return X_reduced_tsne

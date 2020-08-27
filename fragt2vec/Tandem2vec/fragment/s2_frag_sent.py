@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from rdkit import Chem
 from rdkit.Chem import Draw
-from pub_func import write_list_by_json
-from helper_func import Mol2Network, get_fragment_sentence, count_fragment, Refragment
+from .pub_func import write_list_by_json
+from .helper_func import Mol2Network, get_fragment_sentence, count_fragment, Refragment
 
 
 def draw_graph(g, file_dir, file_name):

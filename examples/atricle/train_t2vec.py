@@ -20,12 +20,13 @@ def run_demo():
 if __name__ == '__main__':
     root_dir = '../../big_data/'
     # mol_sentence_file_name = 'step2_parallel_frag_smiles_sentence.csv'
-    mol_sentence_file_name = 'step2_parallel_frag_smiles_sentence_replace_uncommon_frag.csv'
+    mol_sentence_file_name = 'step2_parallel_frag_smiles_sentence_replaced_uncommon_frag.csv'
 
     sub_dir1 = '03_fragment'
     sub_dir2 = '05_model_Tandem2vec'
-    minn = 0
-    maxn = 0
+    # 0 & 0, or 1 & 2
+    minn = 1
+    maxn = 2
     model_file_name = 'tandem2vec_model_minn_{}_maxn_{}.bin'.format(minn, maxn)
     tandem2vec.train_fasttext_model(infile_name=os.path.join(root_dir, sub_dir1, mol_sentence_file_name),
                                     outfile_name=os.path.join(root_dir, sub_dir2, model_file_name),

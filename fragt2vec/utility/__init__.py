@@ -3,7 +3,8 @@ from .pub_func import cal_md_by_smiles
 from .pub_func import get_format_time
 from .pub_func import count_frag_in_mol_sentence
 from .pub_func import insert_unk
-from .draw_mol import draw_multiple_mol, draw_mol_by_smiles
+from .pub_func import reduce_by_tsne
+from .draw_mol import draw_multiple_mol, draw_mol_by_smiles, show_each_md
 from .query_nearest_neighbors import cosine_dis, find_nearest_neighbor
 
 MAIN_ELEMENT = ['C', 'O', 'N', 'H', 'P', 'S', 'Cl', 'F', 'Br', 'I']

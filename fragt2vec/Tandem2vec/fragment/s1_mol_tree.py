@@ -12,8 +12,8 @@ $ python ./fragment/s1_mol_tree.py
 from __future__ import print_function
 import rdkit
 import rdkit.Chem as Chem
-from chemutils import get_clique_mol, tree_decomp, get_mol, get_smiles, set_atommap, enum_assemble
-from pub_func import write_list_by_json
+from .chemutils import get_clique_mol, tree_decomp, get_mol, get_smiles, set_atommap, enum_assemble
+from .pub_func import write_list_by_json
 import json
 import argparse
 
