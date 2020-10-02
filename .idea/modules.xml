@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/fragTandem2vecX.iml" filepath="$PROJECT_DIR$/.idea/fragTandem2vecX.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/fragParallel2vecX.iml" filepath="$PROJECT_DIR$/.idea/fragParallel2vecX.iml" />
     </modules>
   </component>
 </project>

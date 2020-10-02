@@ -119,7 +119,7 @@ def get_xy(frag2vec, frag2class, d=100):
 def train_fasttext_model(infile_name, outfile_name=None, dim=100, ws=4, min_count=3, n_jobs=1,
                          minn=1, maxn=2, method='skip-gram', epoch=30):
     """
-    training fasttext (Tandem2vec) model on corpus file extracted from molecules
+    training fasttext (Parallel2vec) model on corpus file extracted from molecules
     https://fasttext.cc/docs/en/options.html
     https://github.com/RaRe-Technologies/gensim/blob/develop/docs/notebooks/FastText_Tutorial.ipynb
     - parameters of fasttext in gensim vs original FastText

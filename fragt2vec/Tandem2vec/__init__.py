@@ -1,4 +1,0 @@
-"""
-model Tandem2vec
-
-"""

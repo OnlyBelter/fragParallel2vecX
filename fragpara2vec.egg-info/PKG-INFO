@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: fragpara2vec
+Version: 0.2.1
+Summary: molecular vector calculator
+Home-page: UNKNOWN
+Author: Xin (Belter) Xiong
+Author-email: onlybelter@outlook.com
+License: BSD-3-Clause
+Description: UNKNOWN
+Keywords: QSAR chemoinformatics
+Platform: any
+Provides-Extra: full

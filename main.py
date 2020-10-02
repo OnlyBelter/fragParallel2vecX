@@ -1,9 +1,9 @@
 import os
-from fragt2vec._prepare_data import do_step2
+from fragpara2vec._prepare_data import do_step2
 
 
 # step1 get smiles by cid
-data_dir = 'fragt2vec/demo_data'
+data_dir = 'fragpara2vec/demo_data'
 
 # step2 filter molecules by MD
 input_fp = os.path.join(data_dir, '01_raw_data', 'cid2SMILES_head100.txt')

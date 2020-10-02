@@ -1,4 +1,4 @@
 """
-model Tandem2vec
+model Parallel2vec
 
 """
