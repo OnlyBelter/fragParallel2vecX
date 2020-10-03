@@ -1,5 +1,8 @@
 import numpy as np
 import pandas as pd
+from .pub_func import cal_md_by_smiles
+# from fragpara2vec
+MD_IMPORTANCE = {'nARing': 0, 'naRing': 1, 'nBondsT': 2, 'nBondsD': 3, 'nO': 4, 'nN': 5, 'nP': 6, 'nS': 7, 'nX': 8}
 
 
 def cosine_dis(v1, v2):
@@ -18,60 +21,87 @@ def cosine_dis2(df, vec):
     return np.divide(dot_product, norm_product)
 
 
-def find_nearest_neighbor(training_mol_vec_fp, query_mol_vec_df, top_n, query_amount=100000):
+def _find_single_nn(training_mol_vec_fp, query_mol_vec, mol2md_fp, top_n, min_query_count):
+    """
+    algorithm 3 in my thesis, query similar fragments
+    :param training_mol_vec_fp:
+    :param query_mol_vec: a dict, {smiles: vec}
+    :param mol2md_fp: the file path of all molecular MD
+    :param top_n: max n is 100
+    :param min_query_count: the minimal number of molecules contained in query cluster, min min_query_count is top_n
+    :return:
+    """
+
+    order2md = {i: md for md, i in MD_IMPORTANCE.items()}
+    ordered_md = [order2md[i] for i in range(len(MD_IMPORTANCE))]
+    q_mol_smiles = list(query_mol_vec.keys())
+    query_mol_md = cal_md_by_smiles(q_mol_smiles).loc[q_mol_smiles[0], ordered_md].values  # M'
+    query_vec = np.array(list(query_mol_vec.values()))[0]  # f in my paper
+    query_mol_md[query_mol_md > 1] = 1  # M''
+    if top_n > 100:
+        top_n = 100
+    if min_query_count < top_n:
+        min_query_count = top_n
+    while 1:
+        query_mol_md = [i for i in query_mol_md if i != -1]
+        mols_with_same_md = {}  # M_f in my paper
+        with open(mol2md_fp, 'r') as file_handle:
+            md_name = []
+            for line in file_handle:
+                line = line.strip().split(',')
+                if (line[0] == 'fragment') or (line[0] == 'smiles'):  # first line, column names
+                    md_name += line[1:]
+                    print(md_name)
+                else:
+                    cid = line[0]
+                    current_md = [int(i) if int(i) == 0 else 1 for i in line[1:]]
+                    md2val = dict(zip(md_name, current_md))
+                    print(md2val)
+                    current_md_val = [md2val[_md] for _md in ordered_md]
+                    if np.all([query_mol_md[i] == current_md_val[i] for i in range(len(query_mol_md))]):
+                        mols_with_same_md[cid] = 1
+        if len(mols_with_same_md) < min_query_count:
+            if -1 not in query_mol_md:
+                query_mol_md[-1] = -1
+            else:
+                query_mol_md[query_mol_md.index(-1)-1] = -1
+        else:
+            break
+    mol2dis = {}
+    with open(training_mol_vec_fp, 'r') as file_handle:
+        for line in file_handle:
+            line = line.strip().split(',')
+            cid = line[0]
+            if cid in mols_with_same_md:
+                current_vec = np.array([float(i) for i in line[1:]])
+                mol2dis[cid] = cosine_dis(query_vec, current_vec)
+    cid2distance_sorted = sorted(mol2dis.items(), key=lambda x: x[1], reverse=True)
+    cid2distance_topn = cid2distance_sorted[:top_n]
+    return {'cid2distance_topn': cid2distance_topn, 'match_pattern': ''.join([str(i) for i in query_mol_md])}
+
+
+def find_nearest_neighbor(training_mol_vec_fp, query_mol_vec_df, mol2md_fp, top_n, min_query_count=1000):
     """
     find top_n nearest neighbors in all training set (more than 10,000,000 molecules)
-    :param query_amount:
+    :param min_query_count: the minimal number of molecules contained in query cluster, min min_query_count is top_n
     :param training_mol_vec_fp: molecular vector of all training set
     :param query_mol_vec_df: a data frame of molecular vector as query item, index is cid
+    :param mol2md_fp: file path of molecular descriptors
     :param top_n: top n nearest neighbors, max is 100
     :return:
     """
-    # cid2dis_top = {}
-    # cid2distance = {}
-    query2cid_dis = {}
-    query2cid_dis_top = {}
     query2nn = []
-    query_len = query_mol_vec_df.shape[0]
-    index2cid = {i: query_mol_vec_df.index[i] for i in range(query_len)}
-    if top_n > 100:
-        top_n = 100
-    with open(training_mol_vec_fp, 'r') as handel:
-        counter = 0
-        for i in handel:
-            current_line = i.split(',')
-            cid = current_line[0]
-            mol_vec = [float(v) for v in current_line[1:]]
-            _cosine_dis = cosine_dis2(query_mol_vec_df, mol_vec)
-            for j in range(query_len):
-                q_cid = index2cid[j]
-                # q_mol_vec = query_mol_vec_df.loc[q_cid, :]
-                if q_cid not in query2cid_dis:
-                    query2cid_dis[q_cid] = {}
-                query2cid_dis[q_cid][cid] = _cosine_dis[j]
-            # cid2distance[cid] = cosine_dis(q_mol_vec, mol_vec)
-            if len(query2cid_dis[index2cid[0]]) >= 1000:
-                for q_cid2 in query_mol_vec_df.index:
-                    cid2distance_sorted = sorted(query2cid_dis[q_cid2].items(), key=lambda x: x[1], reverse=True)
-                    # cid2distance_df = pd.DataFrame.from_dict(query2cid_dis[q_cid2], orient='index')
-                    # cid2distance_df.sort_values(by=[0], inplace=True, ascending=False)
-                    cid2distance_topn = cid2distance_sorted[:top_n].copy()
-                    if q_cid2 not in query2cid_dis_top:
-                        query2cid_dis_top[q_cid2] = {}
-                    query2cid_dis_top[q_cid2].update({i[0]: i[1] for i in cid2distance_topn})
-                    query2cid_dis[q_cid2] = {}
-            if counter % 10000 == 0:
-                print('current line: {}'.format(counter))
-            if counter >= query_amount:
-                break
-            counter += 1
-    for q_cid in query_mol_vec_df.index:
-        cid2distance_sorted = sorted(query2cid_dis[q_cid2].items(), key=lambda x: x[1], reverse=True)
-        cid2distance_topn = cid2distance_sorted[:top_n].copy()
-        query2cid_dis_top[q_cid].update({i[0]: i[1] for i in cid2distance_topn})
-        top_dis_df = pd.DataFrame.from_dict(query2cid_dis_top[q_cid], orient='index')
-        top_dis_df.sort_values(by=[0], inplace=True, ascending=False)
-        top_n_dis = top_dis_df.iloc[range(top_n), :].copy().to_dict()[0]
-        sorted_top_n_dis = sorted(top_n_dis.items(), key=lambda x: x[1], reverse=True)
+    query_cid2topn = {}
+    query_cid2match_pattern = {}
+    for cid in query_mol_vec_df.index:
+        current_query_mol_vec = {cid: query_mol_vec_df.loc[cid].values}
+        query_result = _find_single_nn(training_mol_vec_fp=training_mol_vec_fp,
+                                       query_mol_vec=current_query_mol_vec,
+                                       mol2md_fp=mol2md_fp,
+                                       top_n=top_n,
+                                       min_query_count=min_query_count)
+        query_cid2topn[cid] = query_result['cid2distance_topn']
+        query_cid2match_pattern[cid] = query_result['match_pattern']
+    for q_cid, sorted_top_n_dis in query_cid2topn.items():
         query2nn.append({q_cid: '; '.join(i[0] + ': ' + str(i[1]) for i in sorted_top_n_dis)})
-    return query2nn
+    return {'query2nn': query2nn, 'match_pattern': query_cid2match_pattern}
