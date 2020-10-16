@@ -14,31 +14,44 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from .helper_func import get_class_md_combination
 
 
-def sampling_train_set(mol2md_info_fn, n_max=5000):
+def split_data_set(down_sampled_file_path, n_min=10, sampling_percentage=0.1):
     """
-    select a subset of training set without some classes (remove 20%)
-    :param mol2md_info_fn:
-    :param n_max: max samples of sampling in each class
-    :return: sampling result, a list of cid
+    split down-sampled data (data set A in article) into training set and test set
+    Test set data contains three parts:
+    - all less than 10 molecules md_class;
+    - all molecules in 10% random selected left classes which contain >= 10 molecules
+    - 10% molecules in other classes ( stratified sampling )
+    :param down_sampled_file_path: the result of down sampling (function down_sampling_mol)
+        cid,md_class
+        8873570,100110100
+    :param n_min: the classes belong to test set which contain less than n_min molecules
+    :param sampling_percentage:
+    :return: training set and test set
     """
-    mol2md_info = pd.read_csv(mol2md_info_fn, index_col='cid')
-    mol2md_info = get_class_md_combination(mol2md_info, min_number=1)
-    unique_labels = mol2md_info['class'].unique()
-    n_80_per = int(np.ceil(len(unique_labels) * 0.9))
-    unique_labels_80 = np.random.choice(unique_labels, n_80_per, replace=False)
-    small_class_bool = mol2md_info['class'].value_counts() < 10
+    cid2md_class = pd.read_csv(down_sampled_file_path, index_col='cid', dtype={'md_class': str})
+    # cid2md_class = get_class_md_combination(cid2md_class, min_number=1)
+    unique_classes = cid2md_class['md_class'].unique()
+
+    # small classes
+    small_class_bool = cid2md_class['md_class'].value_counts() < n_min
     small_class = small_class_bool[small_class_bool].index.to_list()
-    print('num: {}, small class: {}'.format(len(small_class), small_class))
-    unique_labels_80 = set(unique_labels_80) - set(small_class)
-    selected_mol2md_info = mol2md_info[mol2md_info['class'].isin(unique_labels_80)].copy()
-    split = StratifiedShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
+    print('There are {} small classes: {}'.format(len(small_class), small_class))
+
+    unique_classes = list(set(unique_classes) - set(small_class))
+    n_per = int(np.ceil(len(unique_classes) * sampling_percentage))
+    sampled_class = np.random.choice(unique_classes, n_per, replace=False)
+    unique_classes = list(set(unique_classes) - set(sampled_class))  # left 90%
+    left_samples = cid2md_class[cid2md_class['md_class'].isin(unique_classes)].copy()
+    split = StratifiedShuffleSplit(n_splits=1, test_size=sampling_percentage, random_state=42)
     train_set = pd.DataFrame()
-    test_set = pd.DataFrame()
-    for train_inx, test_inx in split.split(selected_mol2md_info, selected_mol2md_info['class']):
-        train_set = selected_mol2md_info.iloc[train_inx]
-        test_set = selected_mol2md_info.iloc[test_inx]
-    other_mol2md_info = mol2md_info[~mol2md_info['class'].isin(unique_labels_80)].copy()
-    test_set = other_mol2md_info.append(test_set)
+    # test_set = pd.DataFrame()
+    for train_inx, test_inx in split.split(left_samples, left_samples['md_class']):
+        train_set = left_samples.iloc[train_inx]
+        # test_set = left_samples.iloc[test_inx]
+    test_set = cid2md_class[~cid2md_class.index.isin(train_set.index)].copy()
+    test_set['type'] = '{}%_percentage_class'.format(sampling_percentage*100)
+    test_set.loc[test_set['md_class'].isin(sampled_class), 'type'] = 'sampled_class'
+    test_set.loc[test_set['md_class'].isin(small_class), 'type'] = 'small_class'
     return {'train_set': train_set, 'test_set': test_set}
 
 
@@ -82,33 +95,31 @@ def nn_model_regression(x, y, epochs, result_dir, callback=None):
     :return:
     """
     m_part1 = keras.Sequential([keras.layers.Dense(50, activation='selu', input_shape=[x.shape[1]]),
-                                keras.layers.Dense(30, activation='selu')])
+                                keras.layers.Dense(30, activation='selu'),
+                                keras.layers.Dropout(rate=0.1)])
     m_part2 = keras.Sequential([
         keras.layers.Dense(50, activation='selu', input_shape=[30]),
+        keras.layers.Dropout(rate=0.1),
         keras.layers.Dense(100, activation='selu'),
+        keras.layers.Dropout(rate=0.1),
         keras.layers.Dense(y.shape[1], activation='softplus')])  # non-negative
     model = keras.Sequential([m_part1, m_part2])
-    model.compile(optimizer='rmsprop', loss='mse',
-                  metrics=['mse'])
+    model.compile(optimizer='rmsprop', loss='mse', metrics=['mse'])
 
     if callback:
         # Model weights are saved at the end of every epoch, if it's the best seen
         # so far.
-        checkpoint_filepath = os.path.join(result_dir, 'checkpoint', 'chp')
-        if not os.path.exists(checkpoint_filepath):
-            os.makedirs(checkpoint_filepath)
-        model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-            filepath=checkpoint_filepath,
-            save_weights_only=True,
-            monitor='val_mse',
-            mode='max',
-            save_best_only=True)
-        history = model.fit(x, y, epochs=epochs, batch_size=32, verbose=2, validation_split=0.2,
-                            callbacks=[model_checkpoint_callback])
+        # checkpoint_filepath = os.path.join(result_dir, 'checkpoint', 'chp')
+        # if not os.path.exists(checkpoint_filepath):
+        #     os.makedirs(checkpoint_filepath)
+        early_stopping_callback = keras.callbacks.EarlyStopping(
+            patience=10,
+            monitor='val_loss',
+            mode='min',
+            restore_best_weights=False)
+        history = model.fit(x, y, epochs=epochs, batch_size=32, verbose=2,
+                            validation_split=0.2, callbacks=[early_stopping_callback])
 
-        # The model weights (that are considered the best) are loaded into the model.
-        model.load_weights(checkpoint_filepath)
-        m_part1.load_weights(checkpoint_filepath)
     else:
         history = model.fit(x, y, epochs=epochs, batch_size=32, verbose=2, validation_split=0.2)
 

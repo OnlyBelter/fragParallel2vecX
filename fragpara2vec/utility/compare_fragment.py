@@ -1,5 +1,4 @@
 import re
-import pandas as pd
 
 
 def replace_nth(string, sub, wanted, n):
@@ -63,13 +62,14 @@ def find_aromatic_non_aroma_ring_pair(frag_df):
     paired_frag = {}
     bond_pairs = []
 
-    patten = 'naRing'
+    # patten = 'naRing'
     frag_with_bonds = frag_df.loc[frag_df['naRing'] >= 1]
 
     for frag in frag_with_bonds.index:
         if frag not in paired_frag:
             _frag_removed_d_bond = frag.replace('=', '')
-            if (_frag_removed_d_bond in all_frags) and (_frag_removed_d_bond not in paired_frag):
+            if (_frag_removed_d_bond in all_frags) and (_frag_removed_d_bond not in paired_frag)\
+                    and (frag != _frag_removed_d_bond):
                 paired_frag[_frag_removed_d_bond] = 1
                 paired_frag[frag] = 1
                 bond_pairs.append((frag, _frag_removed_d_bond))

@@ -42,16 +42,14 @@ def load_trained_model(model_fp):
     return model
 
 
-if __name__ == '__main__':
-    # downsampled couspus, as order as file in result_file_path1
-    dowmsampled_coupus_fp = os.path.join(root_dir, 'downsampled', 'cid2smiles_training_set_coupus.txt')
-    mol2vec_fp = os.path.join(root_dir, 'model_mol2vec_mol2vec_trained_by_all_MOSES.csv')
-    cid2smiles_test = '../big-data/cid2smiles_test.txt'
-    result_file_path4 = '../big-data/vectors/mol2vec_model_mol2vec.csv'
-    get_cid2smiles(cid2smiles.txt, cid_list, result_file=reuslt_file_path1)
-
-    # get vector of each molecule by mol2vec model
-    # mol with fragment id sentence
+def get_mol_vec_by_mol2vec_model(cid2sentence_file_path, model_file_path, result_file_path):
+    """
+    get molecular vectors from model Mol2vec
+    :param cid2sentence_file_path:
+    :param model_file_path:
+    :param result_file_path:
+    :return:
+    """
     print('Start to read downsampled mol sentences and load model...')
     mol_info = pd.read_csv(dowmsampled_coupus_fp, header=None)
 
@@ -71,3 +69,17 @@ if __name__ == '__main__':
     print(cid2vec_df.shape)
     # result_file2 = os.path.join(result_dir, 'step4_selected_mol2vec_model_mol2vec.csv')
     cid2vec_df.to_csv(mol2vec_fp, header=False, float_format='%.3f')
+
+
+if __name__ == '__main__':
+    # downsampled couspus, as order as file in result_file_path1
+    # dowmsampled_coupus_fp = os.path.join(root_dir, 'downsampled', 'cid2smiles_training_set_coupus.txt')
+    # mol2vec_fp = os.path.join(root_dir, 'model_mol2vec_mol2vec_trained_by_all_MOSES.csv')
+    cid2smiles_test = '../big-data/cid2smiles_test.txt'
+    result_file_path4 = '../big-data/vectors/mol2vec_model_mol2vec.csv'
+    # get_cid2smiles(cid2smiles.txt, cid_list, result_file=reuslt_file_path1)
+
+    # get vector of each molecule by mol2vec model
+    # mol with fragment id sentence
+    pass
+

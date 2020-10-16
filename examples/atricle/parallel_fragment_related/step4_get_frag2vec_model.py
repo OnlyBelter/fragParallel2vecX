@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from mordred import descriptors
-from fragpara2vec.Parallel2vec import get_frag_vector_fasttext
+from fragpara2vec.Parallel2vec.parallel2vec import get_frag_vector_fasttext
 from fragpara2vec.utility import cal_md_by_smiles, SELECTED_MD
 # from fragpara2vec.Mol2vec import get_frag_vector_word2vec
 

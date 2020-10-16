@@ -11,7 +11,7 @@ from joblib import Parallel, delayed
 from .helper_func import train_word2vec_model, mol2alt_sentence
 
 
-def generate_corpus_from_smiles(in_file, out_file, r, sentence_type='alt', n_jobs=1):
+def generate_corpus_from_smiles(in_file, out_file, r, sentence_type='alt', n_jobs=1, keep_cid=False):
     """
     modified from generate_corpus
     https://mol2vec.readthedocs.io/en/latest/#mol2vec.features.generate_corpus
@@ -20,9 +20,11 @@ def generate_corpus_from_smiles(in_file, out_file, r, sentence_type='alt', n_job
     :param r: int, Radius of morgan fingerprint
     :param sentence_type:
     :param n_jobs:
+    :param keep_cid: whether keep cid and output it to result file
     :return:
     """
-    all_smiles = []
+    all_cid = []
+    cid2smiles = {}
     with open(in_file, 'r') as f_handle:
         for each_line in f_handle:
             if ',' in each_line:
@@ -30,14 +32,39 @@ def generate_corpus_from_smiles(in_file, out_file, r, sentence_type='alt', n_job
             else:
                 cid, smiles = each_line.strip().split('\t')
             if smiles != 'smiles':
-                all_smiles.append(smiles)
+                cid2smiles[cid] = smiles
+                all_cid.append(cid)
+    print('>>> the number of unique cid is {}'.format(len(cid2smiles)))
+    print('>>> the number of all cid is {}'.format(len(all_cid)))
+    # assert len(smiles2cid) == len(all_smiles)
 
     if sentence_type == 'alt':  # This can run parallelized
-        result = Parallel(n_jobs=n_jobs, verbose=1)(delayed(_parallel_job)(smiles, r) for smiles in all_smiles)
+        if keep_cid:
+            result = Parallel(n_jobs=n_jobs, verbose=1)(delayed(_parallel_job_new)(cid, cid2smiles[cid], r)
+                                                        for cid in all_cid)
+        else:
+            result = Parallel(n_jobs=n_jobs, verbose=1)(delayed(_parallel_job)(smiles, r) for smiles in all_cid)
         for i, line in enumerate(result):
             with open(out_file, 'a') as f_handle:
                 f_handle.write(str(line) + '\n')
+
         print('% molecules successfully processed.')
+
+
+def _parallel_job_new(cid, smiles, r):
+    """
+    return result with cid
+    :param cid:
+    :param smiles:
+    :param r:
+    :return:
+    """
+    if smiles is not None:
+        # smiles = Chem.MolToSmiles(mol)
+        mol = Chem.MolFromSmiles(smiles)
+        sentence = mol2alt_sentence(mol, r)
+        sentence_str = ','.join(sentence)
+        return "\t".join([cid, sentence_str])
 
 
 def _parallel_job(smiles, r):

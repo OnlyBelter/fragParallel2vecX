@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
-from .pub_func import cal_md_by_smiles
+from .pub_func import cal_md_by_smiles, get_ordered_md
 # from fragpara2vec
-MD_IMPORTANCE = {'nARing': 0, 'naRing': 1, 'nBondsT': 2, 'nBondsD': 3, 'nO': 4, 'nN': 5, 'nP': 6, 'nS': 7, 'nX': 8}
+
 
 
 def cosine_dis(v1, v2):
@@ -31,9 +31,8 @@ def _find_single_nn(training_mol_vec_fp, query_mol_vec, mol2md_fp, top_n, min_qu
     :param min_query_count: the minimal number of molecules contained in query cluster, min min_query_count is top_n
     :return:
     """
-
-    order2md = {i: md for md, i in MD_IMPORTANCE.items()}
-    ordered_md = [order2md[i] for i in range(len(MD_IMPORTANCE))]
+    # order2md = {i: md for md, i in MD_IMPORTANCE.items()}
+    ordered_md = get_ordered_md()
     q_mol_smiles = list(query_mol_vec.keys())
     query_mol_md = cal_md_by_smiles(q_mol_smiles).loc[q_mol_smiles[0], ordered_md].values  # M'
     query_vec = np.array(list(query_mol_vec.values()))[0]  # f in my paper
@@ -51,12 +50,12 @@ def _find_single_nn(training_mol_vec_fp, query_mol_vec, mol2md_fp, top_n, min_qu
                 line = line.strip().split(',')
                 if (line[0] == 'fragment') or (line[0] == 'smiles'):  # first line, column names
                     md_name += line[1:]
-                    print(md_name)
+                    # print(md_name)
                 else:
                     cid = line[0]
                     current_md = [int(i) if int(i) == 0 else 1 for i in line[1:]]
                     md2val = dict(zip(md_name, current_md))
-                    print(md2val)
+                    # print(md2val)
                     current_md_val = [md2val[_md] for _md in ordered_md]
                     if np.all([query_mol_md[i] == current_md_val[i] for i in range(len(query_mol_md))]):
                         mols_with_same_md[cid] = 1

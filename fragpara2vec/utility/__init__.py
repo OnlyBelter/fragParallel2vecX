@@ -1,4 +1,5 @@
 from .pub_func import get_mol
+from .pub_func import get_mol_vec
 from .pub_func import cal_md_by_smiles
 from .pub_func import get_format_time
 from .pub_func import count_frag_in_mol_sentence
@@ -10,7 +11,9 @@ from .query_nearest_neighbors import cosine_dis, find_nearest_neighbor
 from .compare_fragment import find_bond_pair
 from .compare_fragment import find_aromatic_non_aroma_ring_pair
 from .pub_func import SELECTED_MD
-from .query_nearest_neighbors import MD_IMPORTANCE
+from .pub_func import MD_IMPORTANCE
+from .pub_func import get_ordered_md
+from .pub_func import grouper
 
 
 MAIN_ELEMENT = ['C', 'O', 'N', 'H', 'P', 'S', 'Cl', 'F', 'Br', 'I']

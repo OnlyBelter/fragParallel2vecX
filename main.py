@@ -1,5 +1,5 @@
 import os
-from fragpara2vec._prepare_data import do_step2
+from fragpara2vec.prepare_data import do_step2
 
 
 # step1 get smiles by cid

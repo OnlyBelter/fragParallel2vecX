@@ -18,7 +18,7 @@ import csv
 from ...utility import cal_md_by_smiles, get_format_time
 # from pub_func import get_format_time
 from ..classifier import SuperviseClassModel
-from .helper_func import get_class, vis_class, get_xy, train_fasttext_model
+from .helper_func import get_class, get_xy, train_fasttext_model
 
 
 def get_frag_vector_fasttext(model_fp, frag_id2vec_fp, frag_smiles=('all',)):

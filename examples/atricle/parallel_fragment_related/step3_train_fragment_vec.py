@@ -2,8 +2,8 @@
 train fragments from tandem method to get vector
 """
 import os
-from fragpara2vec import parallel2vec
-from fragpara2vec.Mol2vec import train_word2vec_model
+from fragpara2vec.Parallel2vec.parallel2vec import train_fasttext_model
+# from fragpara2vec.Mol2vec import train_word2vec_model
 
 
 def run_demo():
@@ -13,9 +13,9 @@ def run_demo():
     sub_dir1 = '03_fragment'
     sub_dir2 = '05_model_Tandem2vec'
     model_file_name = 'tandem2vec_model.bin'
-    parallel2vec.train_fasttext_model(infile_name=os.path.join(root_dir, sub_dir1, mol_sentence_file_name),
-                                      outfile_name=os.path.join(root_dir, sub_dir2, model_file_name),
-                                      n_jobs=4, epoch=5, min_count=3)
+    train_fasttext_model(infile_name=os.path.join(root_dir, sub_dir1, mol_sentence_file_name),
+                         outfile_name=os.path.join(root_dir, sub_dir2, model_file_name),
+                         n_jobs=4, epoch=5, min_count=3)
 
 
 if __name__ == '__main__':
@@ -34,7 +34,7 @@ if __name__ == '__main__':
     model_file_name = '{}2vec_model_minn_{}_maxn_{}.bin'.format(frag_sentence_type, minn, maxn)
     fasttest_model_fp = os.path.join(root_dir, sub_dir2, model_file_name)
     if not os.path.exists(fasttest_model_fp):
-        parallel2vec.train_fasttext_model(infile_name=os.path.join(root_dir, sub_dir1, mol_sentence_file_name),
-                                          outfile_name=fasttest_model_fp,
-                                          n_jobs=6, epoch=5, min_count=5, minn=minn, maxn=maxn,
-                                          dim=100, method='cbow', ws=4)
+        train_fasttext_model(infile_name=os.path.join(root_dir, sub_dir1, mol_sentence_file_name),
+                             outfile_name=fasttest_model_fp,
+                             n_jobs=6, epoch=5, min_count=5, minn=minn, maxn=maxn,
+                             dim=100, method='cbow', ws=4)

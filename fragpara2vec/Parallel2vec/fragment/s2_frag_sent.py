@@ -12,6 +12,8 @@ $ python s2_frag_sent.py ./demo_data/step1_result.txt ./demo_data --log_fn ./dem
 import os
 import json
 import argparse
+import numpy as np
+from tqdm import tqdm
 import pandas as pd
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -110,7 +112,7 @@ def call_frag2sent(input_file_dir, log_file, arrangement_mode='parallel',
     testLines = 10
     # min_len = 5
     result_file_prefix = 'tandem'
-    frag2num = pd.DataFrame()
+    # frag2num = pd.DataFrame()
     if arrangement_mode == 'parallel':
         result_file_prefix = 'parallel'
     if refragment:
@@ -136,56 +138,64 @@ def call_frag2sent(input_file_dir, log_file, arrangement_mode='parallel',
             os.makedirs(test_fig_dir)
 
     print('Start to generate fragment sentence by molecular tree...')
-    if not os.path.exists(result_file_cid2frag):
-        file_handles = {filename: open(os.path.join(input_file_dir, filename), 'r') for filename in frag_info_files}
-        counter = 0
-        while 1:
-            # https://stackoverflow.com/a/46392753/2803344
-            if test and counter > testLines:
-                break
-            current_row = []
-            line = None
-            for filename, file in file_handles.items():
-                line = next(file, None)
-                if line is not None:
-                    line = line.strip().split('\t')
-                    if line[0] == 'cid':
-                        if filename == 'cid2mol_smiles.txt':
-                            current_row += line
-                        else:
-                            current_row += line[1:]
-                    else:
-                        if filename == 'cid2mol_smiles.txt':
-                            current_row += [json.loads(i) for i in line]
-                        else:
-                            current_row += [json.loads(i) for i in line[1:]]
-                else:
-                    file.close()
-            if line is None:
-                break
-            counter += 1
-            cid = current_row[0]
-            if cid != 'cid':
-                SMILES = current_row[1]
-                id2smiles = {int(i): j for i, j in current_row[2].items()}  # frag_id2smiles
-                n2n = {int(i): j for i, j in current_row[3].items()}  # frag_id2neighbors
-                id2mol_inx = {int(i): j for i, j in current_row[4].items()}  # frag_id2mol_inx
+    existed_cid = {}
+    if os.path.exists(result_file_cid2frag):
+        with open(result_file_cid2frag, 'r') as f:
+            for line in f:
+                cid, _ = line.strip().split('\t')
+                existed_cid[cid] = 1
+        print('>>> Fragment sentences of {} molecules have been generated'.format(len(existed_cid)))
+    counter = 0
+    file_handles = {filename: open(os.path.join(input_file_dir, filename), 'r') for filename in frag_info_files}
+    while 1:
+        # https://stackoverflow.com/a/46392753/2803344
+        if test and counter > testLines:
+            break
+        current_row = {}
+        current_cid = {}
+        # cid = None
+        line = None
+        for filename, file in file_handles.items():
+            frag_info_name = filename.replace('.txt', '')
+            line = next(file, None)
+            if line is not None:
+                line = line.strip().split('\t')
+                if line[0] != 'cid':
+                    _cid = line[0]  # json
+                    frag_info = json.loads(line[1])
+                    current_cid[_cid] = 1
+                    current_row[frag_info_name] = frag_info
+            else:
+                file.close()
+        if line is None:
+            break
+        counter += 1
+        if current_cid:
+            if len(current_cid) == 1:
+                cid = json.loads(list(current_cid.keys())[0])
+            else:
+                raise ValueError('CIDs of this line (line {}) in four files are different!'.format(counter))
+            if cid not in existed_cid:
+                SMILES = current_row['cid2mol_smiles']
+                id2smiles = {int(i): j for i, j in current_row['cid2frag_id2frag_smiles'].items()}  # frag_id2smiles
+                n2n = {int(i): j for i, j in current_row['cid2frag_id2neighbors'].items()}  # frag_id2neighbors
+                id2mol_inx = {int(i): j for i, j in current_row['cid2frag_id2mol_inx'].items()}  # frag_id2mol_inx
                 if counter % 100000 == 0 or test:
                     print('>>> current line: ', counter)
                     print('>>>CID: {}, SMILES: (line {})'.format(cid, counter), SMILES)
                 network = Mol2Network(smiles=SMILES, n2n=n2n, id2smiles=id2smiles, id2mol_inx=id2mol_inx)
-                if refragment and (not os.path.exists(result_file_id2frag_refrag)):
-                    refragment_class = Refragment(network.g, f2f=frag2num, smiles=SMILES)
-                    refragment_result = refragment_class.update()
-                    frag2num = refragment_result['f2f']  # update f2n at each iterate
-                    n2n = refragment_result['n2n']  # update n2n after refragment
-                    id2smiles = refragment_result['id2smiles']
-                    id2mol_inx = refragment_result['id2mol_inx']
-                    network = Mol2Network(smiles=SMILES, n2n=n2n, id2smiles=id2smiles,
-                                          id2mol_inx=id2mol_inx)
-                    with open(result_file_id2frag_refrag, 'a') as result_f_refrag:
-                        write_str = write_list_by_json([cid, SMILES, id2smiles, n2n, id2mol_inx])
-                        result_f_refrag.write(write_str)
+                # if refragment and (not os.path.exists(result_file_id2frag_refrag)):
+                #     refragment_class = Refragment(network.g, f2f=frag2num, smiles=SMILES)
+                #     refragment_result = refragment_class.update()
+                #     frag2num = refragment_result['f2f']  # update f2n at each iterate
+                #     n2n = refragment_result['n2n']  # update n2n after refragment
+                #     id2smiles = refragment_result['id2smiles']
+                #     id2mol_inx = refragment_result['id2mol_inx']
+                #     network = Mol2Network(smiles=SMILES, n2n=n2n, id2smiles=id2smiles,
+                #                           id2mol_inx=id2mol_inx)
+                #     with open(result_file_id2frag_refrag, 'a') as result_f_refrag:
+                #         write_str = write_list_by_json([cid, SMILES, id2smiles, n2n, id2mol_inx])
+                #         result_f_refrag.write(write_str)
                 if test:
                     print('    id2smiles: ', id2smiles)
                     print('    n2n: ', n2n)
@@ -237,13 +247,6 @@ def call_frag2sent(input_file_dir, log_file, arrangement_mode='parallel',
                             print('    Mol sentence: ')
                             print(mol_sentence)
                             print('    mol paths: ', mol_paths)
-                    # print(line)
-
-        if refragment:
-            frag2num.to_csv(os.path.join(result_dir, 'step2_frag2num_new.csv'))
-    else:
-        print('>>> cid2smiles_sentence file has existed, this step will omit...')
-        print()
 
     # count fragment frequency
     print('Start to count fragments...')

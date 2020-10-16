@@ -56,7 +56,7 @@ class Mol2Network:
            "8": [7, 8], "9": [7, 9], "10": [18, 19], "11": [19, 20], "12": [20, 21], "13": [20, 22],
            "14": [9, 18, 17, 16, 11, 10], "15": [12, 13, 14, 15, 16, 11], "16": [3], "17": [7], "18": [20]}
         """
-        self.smiles = smiles
+        # self.smiles = smiles
         self.n2n = n2n
         self.id2smiles = id2smiles
         self.id2mol_inx = id2mol_inx

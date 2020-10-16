@@ -38,23 +38,20 @@ def split_mol_tree(file_path, result_dir):
 
 if __name__ == '__main__':
     # root_dir = pkg_resources.resource_filename('fragpara2vec', 'demo_data')
-    root_dir = '../../../big_data'
+    root_dir = R'F:\result_dir'
     sub_dir1 = '02_filtered_molecule'
     sub_dir2 = '03_fragment'
     sub_dir3 = 'cid2frag_info'
-    raw_data_file_path = os.path.join(root_dir, sub_dir1, 'cid2SMILES_after_filtered.txt')
+    raw_data_file_path = os.path.join(root_dir, sub_dir1, 'cid2SMILES_filtered.txt')
     result_dir = os.path.join(root_dir, sub_dir2)
 
     # tree decomposition
+    # TODO, debug...
     print('Start to do tree decomposition...')
     tree_decompo_result_dir = os.path.join(result_dir, sub_dir3)
-    if not os.path.exists(tree_decompo_result_dir):
-        call_mol_tree(raw_data_file=raw_data_file_path, log_file='mol_tree.log', result_dir=tree_decompo_result_dir)
-    else:
-        print('>>> The result folder of tree decomposition has existed, previous results will be used.')
-        print()
-    # for mol_tree_file in ['mol_tree.txt', 'mol_tree_part2.txt']:
-    #     split_mol_tree(os.path.join(result_dir, mol_tree_file), result_dir)
+    call_mol_tree(raw_data_file=raw_data_file_path, common_atom_merge_ring=2,
+                  log_file='mol_tree.log', result_dir=tree_decompo_result_dir,
+                  start_line=1, test_mode=True, ignore_existed_cid=True)
 
     # get fragment sentence from decomposition results
     for arrange_mode in ['parallel', 'tandem']:

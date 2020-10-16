@@ -1,19 +1,6 @@
 import os
 import pandas as pd
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-import seaborn as sns
-
-import rdkit
-from rdkit.Chem.Draw import IPythonConsole
-# IPythonConsole.ipython_useSVG = True
-from IPython.display import SVG
-from sklearn.decomposition import PCA
-
-import rdkit.Chem as Chem
-from rdkit.Chem import Draw
-from fragpara2vec.utility import SELECTED_MD, get_format_time, find_nearest_neighbor, draw_multiple_mol
+from fragpara2vec.utility import find_nearest_neighbor, draw_multiple_mol
 
 
 def save_fig(fig, file_path):
@@ -67,17 +54,18 @@ if __name__ == '__main__':
             legends = []
             for inx in range(len(q_frags)):
                 smiles_list += [i.split(": ")[0] for i in nn[inx][q_frags[inx]].split('; ')]
-                dis += [str('{:.8f}').format(float(i.split(": ")[1])) for i in nn[inx][q_frags[inx]].split('; ')]
+                dis += [str('{:.6f}').format(float(i.split(": ")[1])) for i in nn[inx][q_frags[inx]].split('; ')
+                        if i.split(": ")[1] != 1]
                 # print(dis)
                 # print(inx, smiles_list)
-            legends += ['{}({})'.format(smiles_list[i], dis[i]) for i in range(len(smiles_list))]
+            legends += ['{} ({})'.format(smiles_list[i], dis[i]) for i in range(len(smiles_list))]
             fig = draw_multiple_mol(smiles_list=smiles_list, mols_per_row=topn, legends=legends)
             save_fig(fig, file_path=os.path.join(root_dir, sub_dir2,
                                                  'top{}_minn_{}_maxn_{}_{}.svg'.format(topn, minn, maxn,
                                                                                        frag_sentence_type)))
             match_pattern_file_path = os.path.join(root_dir, sub_dir2,
                                                    'top{}_minn_{}_maxn_{}_{}.txt'.format(topn, minn, maxn,
-                                                                                       frag_sentence_type))
+                                                                                         frag_sentence_type))
             with open(match_pattern_file_path, 'w') as file_handle:
                 file_handle.write('\t'.join(['cid', 'pattern']) + '\n')
                 for cid, pattern in query_result['match_pattern'].items():

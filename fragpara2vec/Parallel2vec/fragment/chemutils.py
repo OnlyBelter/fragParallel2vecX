@@ -3,8 +3,12 @@ import rdkit.Chem as Chem
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import minimum_spanning_tree
 from collections import defaultdict
-from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
+
 from .vocab import Vocab
+from ._fragment_assistant import (get_ring_and_merge, copy_edit_mol,
+                                  copy_atom, sanitize, get_smiles,
+                                  get_clique_smiles, FragInfo,
+                                  get_atom2frags, check_ending_fragment)
 
 MST_MAX_WEIGHT = 100
 MAX_NCAND = 2000
@@ -15,156 +19,128 @@ def set_atommap(mol, num=0):
         atom.SetAtomMapNum(num)
 
 
-def get_mol(smiles):
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    Chem.Kekulize(mol)
-    return mol
+def get_edges(n_atoms, frag2info, refragment=False):
+    """
+    get the relation between each two adjacent fragments
+    :param n_atoms:
+    :param frag2atom:
+    :param frag2info: fragment id with FragInfo class
+    :param refragment: whether do refragment
+    :return:
+    """
+    # Build edges and add singleton cliques
+    # the edge is the relation between two fragments
+    atom2frags = get_atom2frags(n_atoms=n_atoms, frag2info=frag2info)
+    edges = defaultdict(int)  # https://stackoverflow.com/a/5900628/2803344
+    for atom_inx in range(n_atoms):
+        frag_inx = atom2frags[atom_inx]
+        # re-fragment
+        if refragment:
+            frag2info = check_ending_fragment(n_atoms=n_atoms, frag_ids=frag_inx, frag2info=frag2info)
+            atom2frags = get_atom2frags(n_atoms=n_atoms, frag2info=frag2info)
+            frag_inx = atom2frags[atom_inx]
+
+        if len(frag_inx) <= 1:  # ignore the atoms only appear in one fragment
+            continue
+        bonds = [c for c in frag_inx if len(frag2info[c].atoms) == 2]  # non-ring fragment contains two atoms, such as [1, 2]
+        rings = [c for c in frag_inx if len(frag2info[c].atoms) > 4]  # > 4 atoms in the fragment
+        if len(bonds) > 2 or (len(bonds) == 2 and len(
+                frag_inx) > 2):  # In general, if len(frag_inx) >= 3, a singleton should be added, but 1 bond + 2 ring is currently not dealt with.
+            # frag2atom[len(frag2atom)] = [atom_inx]
+            # frag2info[len(frag2info)].atoms = [atom_inx]
+            frag_id = len(frag2info)  # singleton clique which appear in more than 3 fragments
+            frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=[atom_inx])
+            c2 = len(frag2info) - 1  # fragment index for new singleton
+            for c1 in frag_inx:
+                edges[(c1, c2)] = 1
+        elif len(rings) > 2:  # appear in multiple complex rings
+            # frag2atom[len(frag2atom)] = [atom_inx]
+            frag_id = len(frag2info)
+            frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=[atom_inx])
+            # frag2info[len(frag2info)].atoms = [atom_inx]
+            c2 = len(frag2info) - 1
+            for c1 in frag_inx:
+                edges[(c1, c2)] = MST_MAX_WEIGHT - 1
+        else:
+            for i in range(len(frag_inx)):
+                for j in range(i + 1, len(frag_inx)):
+                    c1, c2 = frag_inx[i], frag_inx[j]
+                    inter = set(frag2info[c1].atoms) & set(frag2info[c2].atoms)
+                    if edges[(c1, c2)] < len(inter):
+                        edges[(c1, c2)] = len(inter)  # frag_inx[i] < frag_inx[j] by construction
+    # [(0, 17, 99), (1, 17, 99), ...] which contain (fragment id, fragment id, weight)
+    edges = [u + (MST_MAX_WEIGHT - v,) for u, v in edges.items()]
+    if len(edges) == 0:
+        return edges, frag2info
+
+    # Compute Maximum Spanning Tree
+    row, col, data = zip(*edges)
+    n_clique = len(frag2info)
+    clique_graph = csr_matrix((data, (row, col)), shape=(n_clique, n_clique))
+    junc_tree = minimum_spanning_tree(clique_graph)
+    row, col = junc_tree.nonzero()
+    edges = [(row[i], col[i]) for i in range(len(row))]
+    return edges, frag2info  # fragments and the relation between each two fragments
 
 
-def get_smiles(mol):
-    return Chem.MolToSmiles(mol, kekuleSmiles=True)
-
-
-def decode_stereo(smiles2D):
-    mol = Chem.MolFromSmiles(smiles2D)
-    dec_isomers = list(EnumerateStereoisomers(mol))
-
-    dec_isomers = [Chem.MolFromSmiles(Chem.MolToSmiles(mol, isomericSmiles=True)) for mol in dec_isomers]
-    smiles3D = [Chem.MolToSmiles(mol, isomericSmiles=True) for mol in dec_isomers]
-
-    chiralN = [atom.GetIdx() for atom in dec_isomers[0].GetAtoms() if
-               int(atom.GetChiralTag()) > 0 and atom.GetSymbol() == "N"]
-    if len(chiralN) > 0:
-        for mol in dec_isomers:
-            for idx in chiralN:
-                mol.GetAtomWithIdx(idx).SetChiralTag(Chem.rdchem.ChiralType.CHI_UNSPECIFIED)
-            smiles3D.append(Chem.MolToSmiles(mol, isomericSmiles=True))
-
-    return smiles3D
-
-
-def sanitize(mol):
-    try:
-        smiles = get_smiles(mol)
-        mol = get_mol(smiles)
-    except Exception as e:
-        return None
-    return mol
-
-
-def copy_atom(atom):
-    new_atom = Chem.Atom(atom.GetSymbol())
-    new_atom.SetFormalCharge(atom.GetFormalCharge())
-    new_atom.SetAtomMapNum(atom.GetAtomMapNum())
-    return new_atom
-
-
-def copy_edit_mol(mol):
-    new_mol = Chem.RWMol(Chem.MolFromSmiles(''))
-    for atom in mol.GetAtoms():
-        new_atom = copy_atom(atom)
-        new_mol.AddAtom(new_atom)
-    for bond in mol.GetBonds():
-        a1 = bond.GetBeginAtom().GetIdx()
-        a2 = bond.GetEndAtom().GetIdx()
-        bt = bond.GetBondType()
-        new_mol.AddBond(a1, a2, bt)
-    return new_mol
-
-
-def get_clique_mol(mol, atoms):
-    smiles = Chem.MolFragmentToSmiles(mol, atoms, kekuleSmiles=True)
-    new_mol = Chem.MolFromSmiles(smiles, sanitize=False)
-    new_mol = copy_edit_mol(new_mol).GetMol()
-    new_mol = sanitize(new_mol)  # We assume this is not None
-    return new_mol
-
-
-def tree_decomp(mol, common_atom_split_ring=3):
+def tree_decomp(mol, common_atom_merge_ring=2):
     """
 
     :param mol:
-    :param common_atom_split_ring: 2/3, if the intersection atom between two rings >= this number, merge them
+    :param common_atom_merge_ring: 2/3, if the intersection atom between two rings >= this number, merge them
     :return:
     """
     n_atoms = mol.GetNumAtoms()
     if n_atoms == 1:  # special case
         return [[0]], []
 
-    cliques = []
+    # frag2atom = {}  # {0: [0, 1], 1: [1, 2], ...}, fragment id with a list of atom id
+    frag2info = {}  # {fragment_id: FragInfo class, ...}
     for bond in mol.GetBonds():
         a1 = bond.GetBeginAtom().GetIdx()
         a2 = bond.GetEndAtom().GetIdx()
         if not bond.IsInRing():
-            cliques.append([a1, a2])
+            frag_id = len(frag2info)
+            frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=[a1, a2])
+            # frag2atom[len(frag2atom)] = [a1, a2]
 
-    ssr = [list(x) for x in Chem.GetSymmSSSR(mol)]
-    cliques.extend(ssr)
+    # ssr = [list(x) for x in Chem.GetSymmSSSR(mol)]
+    ssr = get_ring_and_merge(mol=mol,
+                             common_atom_merge_ring=common_atom_merge_ring)
+    for _ssr in ssr:
+        frag_id = len(frag2info)
+        frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=_ssr, ring=True)
+        # frag2atom[len(frag2atom)] = _ssr
 
-    nei_list = [[] for i in range(n_atoms)]
-    for i in range(len(cliques)):
-        for atom in cliques[i]:
-            nei_list[atom].append(i)
+    # atom2frags = {i: [] for i in range(n_atoms)}  # {atom_id: [frag1, frag2], ...}
+    # for frag_id, atom_ids in frag2atom.items():
+    #     for atom in atom_ids:
+    #         atom2frags[atom].append(frag_id)
 
-    # Merge Rings with intersection > 2 atoms
-    for i in range(len(cliques)):
-        if len(cliques[i]) <= 2: continue
-        for atom in cliques[i]:
-            for j in nei_list[atom]:
-                if i >= j or len(cliques[j]) <= 2: continue
-                inter = set(cliques[i]) & set(cliques[j])
-                if len(inter) >= common_atom_split_ring:
-                    cliques[i].extend(cliques[j])
-                    cliques[i] = list(set(cliques[i]))
-                    cliques[j] = []
+    # # Merge Rings with intersection > 2 atoms
+    # for frag_id_a, atom_ids in frag2atom.items():
+    #     if len(atom_ids) <= 2: continue
+    #     for atom in atom_ids:
+    #         for frag_id_b in atom2frags[atom]:
+    #             if frag_id_a >= frag_id_b or len(frag2atom[frag_id_b]) <= 2: continue
+    #             inter = set(atom_ids) & set(frag2atom[frag_id_b])
+    #             if len(inter) >= common_atom_merge_ring:
+    #                 frag2atom[frag_id_a].extend(frag2atom[frag_id_b])  # merge two rings
+    #                 frag2atom[frag_id_a] = list(set(frag2atom[frag_id_a]))
+    #                 frag2atom[frag_id_b] = []  # remove fragment frag_id_b
 
-    cliques = [c for c in cliques if len(c) > 0]
-    nei_list = [[] for i in range(n_atoms)]
-    for i in range(len(cliques)):
-        for atom in cliques[i]:
-            nei_list[atom].append(i)
+    # frag2atom = {f: a for f, a in frag2atom.items() if len(a) > 0}
+    # atom2frags = {i: [] for i in range(n_atoms)}  # reconstruct atom_inx2frag_id
+    # for frag_id, atom_ids in frag2atom.items():
+    #     for atom in atom_ids:
+    #         atom2frags[atom].append(frag_id)
+    # frag2smiles = {}
+    for frag_id, frag_info in frag2info.items():
+        frag2info[frag_id].smiles = get_clique_smiles(mol, frag_info.atoms)
 
-    # Build edges and add singleton cliques
-    edges = defaultdict(int)
-    for atom in range(n_atoms):
-        if len(nei_list[atom]) <= 1:
-            continue
-        cnei = nei_list[atom]
-        bonds = [c for c in cnei if len(cliques[c]) == 2]
-        rings = [c for c in cnei if len(cliques[c]) > 4]
-        if len(bonds) > 2 or (len(bonds) == 2 and len(
-                cnei) > 2):  # In general, if len(cnei) >= 3, a singleton should be added, but 1 bond + 2 ring is currently not dealt with.
-            cliques.append([atom])
-            c2 = len(cliques) - 1
-            for c1 in cnei:
-                edges[(c1, c2)] = 1
-        elif len(rings) > 2:  # Multiple (n>2) complex rings
-            cliques.append([atom])
-            c2 = len(cliques) - 1
-            for c1 in cnei:
-                edges[(c1, c2)] = MST_MAX_WEIGHT - 1
-        else:
-            for i in range(len(cnei)):
-                for j in range(i + 1, len(cnei)):
-                    c1, c2 = cnei[i], cnei[j]
-                    inter = set(cliques[c1]) & set(cliques[c2])
-                    if edges[(c1, c2)] < len(inter):
-                        edges[(c1, c2)] = len(inter)  # cnei[i] < cnei[j] by construction
-
-    edges = [u + (MST_MAX_WEIGHT - v,) for u, v in edges.items()]
-    if len(edges) == 0:
-        return cliques, edges
-
-    # Compute Maximum Spanning Tree
-    row, col, data = zip(*edges)
-    n_clique = len(cliques)
-    clique_graph = csr_matrix((data, (row, col)), shape=(n_clique, n_clique))
-    junc_tree = minimum_spanning_tree(clique_graph)
-    row, col = junc_tree.nonzero()
-    edges = [(row[i], col[i]) for i in range(len(row))]
-    return (cliques, edges)
+    edges, frag2info = get_edges(n_atoms=n_atoms, frag2info=frag2info)
+    # frag2atom = {i: j.atoms for i, j in frag2info.items()}
+    return edges, frag2info
 
 
 def atom_equal(a1, a2):
@@ -392,78 +368,79 @@ def dfs_assemble(cur_mol, global_amap, fa_amap, cur_node, fa_node):
 
 
 if __name__ == "__main__":
-    import sys
-    from fast_jtnn.mol_tree import MolTree
-
-    lg = rdkit.RDLogger.logger()
-    lg.setLevel(rdkit.RDLogger.CRITICAL)
-
-    smiles = ["O=C1[C@@H]2C=C[C@@H](C=CC2)C1(c1ccccc1)c1ccccc1", "O=C([O-])CC[C@@]12CCCC[C@]1(O)OC(=O)CC2",
-              "ON=C1C[C@H]2CC3(C[C@@H](C1)c1ccccc12)OCCO3",
-              "C[C@H]1CC(=O)[C@H]2[C@@]3(O)C(=O)c4cccc(O)c4[C@@H]4O[C@@]43[C@@H](O)C[C@]2(O)C1",
-              'Cc1cc(NC(=O)CSc2nnc3c4ccccc4n(C)c3n2)ccc1Br', 'CC(C)(C)c1ccc(C(=O)N[C@H]2CCN3CCCc4cccc2c43)cc1',
-              "O=c1c2ccc3c(=O)n(-c4nccs4)c(=O)c4ccc(c(=O)n1-c1nccs1)c2c34", "O=C(N1CCc2c(F)ccc(F)c2C1)C1(O)Cc2ccccc2C1"]
-
-
-    def tree_test():
-        for s in sys.stdin:
-            s = s.split()[0]
-            tree = MolTree(s)
-            print('-------------------------------------------')
-            print(s)
-            for node in tree.nodes:
-                print(node.smiles, [x.smiles for x in node.neighbors])
-
-
-    def decode_test():
-        wrong = 0
-        for tot, s in enumerate(sys.stdin):
-            s = s.split()[0]
-            tree = MolTree(s)
-            tree.recover()
-
-            cur_mol = copy_edit_mol(tree.nodes[0].mol)
-            global_amap = [{}] + [{} for node in tree.nodes]
-            global_amap[1] = {atom.GetIdx(): atom.GetIdx() for atom in cur_mol.GetAtoms()}
-
-            dfs_assemble(cur_mol, global_amap, [], tree.nodes[0], None)
-
-            cur_mol = cur_mol.GetMol()
-            cur_mol = Chem.MolFromSmiles(Chem.MolToSmiles(cur_mol))
-            set_atommap(cur_mol)
-            dec_smiles = Chem.MolToSmiles(cur_mol)
-
-            gold_smiles = Chem.MolToSmiles(Chem.MolFromSmiles(s))
-            if gold_smiles != dec_smiles:
-                print(gold_smiles, dec_smiles)
-                wrong += 1
-            print(wrong, tot + 1)
-
-
-    def enum_test():
-        for s in sys.stdin:
-            s = s.split()[0]
-            tree = MolTree(s)
-            tree.recover()
-            tree.assemble()
-            for node in tree.nodes:
-                if node.label not in node.cands:
-                    print(tree.smiles)
-                    print(node.smiles, [x.smiles for x in node.neighbors])
-                    print(node.label, len(node.cands))
-
-
-    def count():
-        cnt, n = 0, 0
-        for s in sys.stdin:
-            s = s.split()[0]
-            tree = MolTree(s)
-            tree.recover()
-            tree.assemble()
-            for node in tree.nodes:
-                cnt += len(node.cands)
-            n += len(tree.nodes)
-            # print cnt * 1.0 / n
-
-
-    count()
+    pass
+    # import sys
+    # from fast_jtnn.mol_tree import MolTree
+    #
+    # lg = rdkit.RDLogger.logger()
+    # lg.setLevel(rdkit.RDLogger.CRITICAL)
+    #
+    # smiles = ["O=C1[C@@H]2C=C[C@@H](C=CC2)C1(c1ccccc1)c1ccccc1", "O=C([O-])CC[C@@]12CCCC[C@]1(O)OC(=O)CC2",
+    #           "ON=C1C[C@H]2CC3(C[C@@H](C1)c1ccccc12)OCCO3",
+    #           "C[C@H]1CC(=O)[C@H]2[C@@]3(O)C(=O)c4cccc(O)c4[C@@H]4O[C@@]43[C@@H](O)C[C@]2(O)C1",
+    #           'Cc1cc(NC(=O)CSc2nnc3c4ccccc4n(C)c3n2)ccc1Br', 'CC(C)(C)c1ccc(C(=O)N[C@H]2CCN3CCCc4cccc2c43)cc1',
+    #           "O=c1c2ccc3c(=O)n(-c4nccs4)c(=O)c4ccc(c(=O)n1-c1nccs1)c2c34", "O=C(N1CCc2c(F)ccc(F)c2C1)C1(O)Cc2ccccc2C1"]
+    #
+    #
+    # def tree_test():
+    #     for s in sys.stdin:
+    #         s = s.split()[0]
+    #         tree = MolTree(s)
+    #         print('-------------------------------------------')
+    #         print(s)
+    #         for node in tree.nodes:
+    #             print(node.smiles, [x.smiles for x in node.neighbors])
+    #
+    #
+    # def decode_test():
+    #     wrong = 0
+    #     for tot, s in enumerate(sys.stdin):
+    #         s = s.split()[0]
+    #         tree = MolTree(s)
+    #         tree.recover()
+    #
+    #         cur_mol = copy_edit_mol(tree.nodes[0].mol)
+    #         global_amap = [{}] + [{} for node in tree.nodes]
+    #         global_amap[1] = {atom.GetIdx(): atom.GetIdx() for atom in cur_mol.GetAtoms()}
+    #
+    #         dfs_assemble(cur_mol, global_amap, [], tree.nodes[0], None)
+    #
+    #         cur_mol = cur_mol.GetMol()
+    #         cur_mol = Chem.MolFromSmiles(Chem.MolToSmiles(cur_mol))
+    #         set_atommap(cur_mol)
+    #         dec_smiles = Chem.MolToSmiles(cur_mol)
+    #
+    #         gold_smiles = Chem.MolToSmiles(Chem.MolFromSmiles(s))
+    #         if gold_smiles != dec_smiles:
+    #             print(gold_smiles, dec_smiles)
+    #             wrong += 1
+    #         print(wrong, tot + 1)
+    #
+    #
+    # def enum_test():
+    #     for s in sys.stdin:
+    #         s = s.split()[0]
+    #         tree = MolTree(s)
+    #         tree.recover()
+    #         tree.assemble()
+    #         for node in tree.nodes:
+    #             if node.label not in node.cands:
+    #                 print(tree.smiles)
+    #                 print(node.smiles, [x.smiles for x in node.neighbors])
+    #                 print(node.label, len(node.cands))
+    #
+    #
+    # def count():
+    #     cnt, n = 0, 0
+    #     for s in sys.stdin:
+    #         s = s.split()[0]
+    #         tree = MolTree(s)
+    #         tree.recover()
+    #         tree.assemble()
+    #         for node in tree.nodes:
+    #             cnt += len(node.cands)
+    #         n += len(tree.nodes)
+    #         # print cnt * 1.0 / n
+    #
+    #
+    # count()

@@ -1,13 +1,38 @@
 import time
 import datetime
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import rdkit.Chem as Chem
 from sklearn.manifold import TSNE
+from itertools import zip_longest
 from mordred import Calculator, descriptors
 
 
 SELECTED_MD = ['nN', 'nP', 'nS', 'nO', 'nX', 'nBondsD', 'nBondsT', 'naRing', 'nARing']
+MD_IMPORTANCE = {'nARing': 0, 'naRing': 1, 'nBondsT': 2, 'nBondsD': 3, 'nO': 4, 'nN': 5, 'nP': 6, 'nS': 7, 'nX': 8}
+
+
+def cal_md_by_smiles_file(smiles_file_path, n=100000):
+    all_results = []
+    all_cid2smiles = {}
+    with open(smiles_file_path) as f:
+        for lines in grouper(f, n):
+            assert len(lines) == n
+            # process N lines here
+            current_cid2smiles = {}
+            for line in lines:
+                if ',' in line:
+                    line = line.strip().split(',')
+                else:
+                    line = line.strip().split('\t')
+                cid, smiles = line
+                all_cid2smiles[cid] = smiles
+                current_cid2smiles[cid] = smiles
+            current_smiles_list = list(current_cid2smiles.values())
+            all_results.append(cal_md_by_smiles(current_smiles_list))
+    all_results_df = pd.concat(all_results)
+    all_results_df.index = all_results_df.index.map()
 
 
 def cal_md_by_smiles(smiles_list, md_list=None, print_info=False,
@@ -36,7 +61,7 @@ def cal_md_by_smiles(smiles_list, md_list=None, print_info=False,
     md_df = calc.pandas(mols)
     if not md_list:
         # naRing means aromatic ring count, nARing means aliphatic ring count
-        md_list = SELECTED_MD
+        md_list = get_ordered_md()
     if print_info:
         print(md_df)
         print(smiles_list)
@@ -180,3 +205,78 @@ def reduce_by_tsne(x, n_jobs=4):
     t1 = time.time()
     print("t-SNE took {:.1f}s.".format(t1 - t0))
     return X_reduced_tsne
+
+
+def get_ordered_md():
+    """
+    get ordered Molecular descriptors according to MD_IMPORTANCE
+    :return:
+    """
+    global MD_IMPORTANCE
+    order2md = {i: md for md, i in MD_IMPORTANCE.items()}
+    ordered_md = [order2md[i] for i in range(len(MD_IMPORTANCE))]
+    return ordered_md
+
+
+def get_mol_vec(frag2vec_file_path, data_set, result_path):
+    """
+    sum all fragment vector to get molecule vector
+    :param frag2vec_file_path:
+    :param data_set: the file path of selected molecules
+        contains cid and fragments(id or SMILES),
+        for example: 15054491	CO,CO,CC,CO,CO,C1=CC=CC=C1,C1CCOC1
+    :param result_path:
+    :return:
+    """
+    frag2vec_df = pd.read_csv(frag2vec_file_path, index_col=0)
+    cid2vec = {}
+    counter = 0
+    print('>>> frag2vec')
+    print_df(frag2vec_df)
+    cid_coll = {}
+    with open(data_set, 'r') as f_handle:
+        for row in tqdm(f_handle):
+            if not row.startswith('cid'):
+                cid, frag_smiles = row.strip().split('\t')  # cid/frag_smiles (or frag_ids)
+                cid_coll[cid] = 1
+                frags = frag_smiles.split(',')
+                frags = [i if i in frag2vec_df.index else 'UNK' for i in frags]
+                cid2vec[cid] = frag2vec_df.loc[frags, :].sum().values
+                if len(cid2vec) == 200000:
+                    cid2vec_df = pd.DataFrame.from_dict(cid2vec, orient='index')
+                    cid2vec_df.to_csv(result_path, mode='a', header=False, float_format='%.3f')
+                    cid2vec = {}
+            # if counter % 10000 == 0:
+            #     print('>>> Processing line {}...'.format(counter))
+            counter += 1
+    # the last part
+    # TODO: what's wrong in this piece of code???
+    print('>>> the number of cid: {}'.format(len(cid_coll)))
+    cid2vec_df = pd.DataFrame.from_dict(cid2vec, orient='index')
+    cid2vec_df.to_csv(result_path, mode='a', header=False, float_format='%.3f')
+
+
+def grouper(iterable, n, fillvalue=None):
+    """
+    https://stackoverflow.com/a/5845141/2803344
+    read multiple lines each step, see example at function read_lines below
+    :param iterable:
+    :param n:
+    :param fillvalue:
+    :return:
+    """
+    args = [iter(iterable)] * n
+    return zip_longest(*args, fillvalue=fillvalue)
+
+
+def read_lines(file_path, n=1000):
+    """
+    # https://stackoverflow.com/a/5845141/2803344
+    :param file_path:
+    :param n:
+    :return:
+    """
+    with open(file_path) as f:
+        for lines in grouper(f, n, ''):
+            assert len(lines) == n
+            # process N lines here
