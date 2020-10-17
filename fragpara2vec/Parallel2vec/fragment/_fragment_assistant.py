@@ -53,7 +53,7 @@ def get_ring_and_merge(mol, common_atom_merge_ring=2):
 def get_clique_smiles(mol, atoms):
     """
     extract fragment SMILES by a list of atom index
-    :param mol: Mol object in RDKit
+    :param mol: <class 'rdkit.Chem.rdchem.Mol'> in RDKit
     :param atoms: a list of atom index
     :return: the SMILES of fragment (atom id in atoms) in molecule
     """
@@ -67,6 +67,7 @@ def get_clique_smiles(mol, atoms):
 
 def check_ending_fragment(n_atoms, frag_ids, frag2info):
     """
+    # do refragment, re-fragment
     check if there is any ending fragment in these fragments (>= 2)
     if == 1: and another fragment is ring, merge them together,
     if >= 2: merge all ending fragments,
@@ -81,7 +82,15 @@ def check_ending_fragment(n_atoms, frag_ids, frag2info):
     frag_ids = sorted(frag_ids, reverse=True)  # big to small
     atom2frags = get_atom2frags(n_atoms=n_atoms, frag2info=frag2info)
     if_ring = np.array([frag2info[i].ring for i in frag_ids])
-    if_end_fragment = np.array([np.any(np.array([atom2frags[i]]) == 1) for i in frag_ids])
+    # one atom only appear in a single fragment
+    if_end_fragment = np.array([])
+    for inx, frag_id in enumerate(frag_ids):
+        if if_ring[inx]:
+            end_frag_check = sum([len(atom2frags[i]) == 2 for i in frag2info[frag_id].atoms]) == 1
+        else:
+            end_frag_check = np.any([len(atom2frags[i]) == 1 for i in frag2info[frag_id].atoms])
+        if_end_fragment = np.append(if_end_fragment, end_frag_check)
+    # if_end_fragment = np.array([np.any(len(atom2frags[i]) == 1) for i in frag_ids])
     if np.any(if_end_fragment):  # at least 1 ending fragment exist
         count_non_ring_end_frag = 0  # non ring and ending fragment
         count_ring_non_end_frag = 0  # ring but not ending fragment
@@ -95,19 +104,29 @@ def check_ending_fragment(n_atoms, frag_ids, frag2info):
         if len(frag_ids) == 2:
             if (count_ring_non_end_frag == 1) and (count_non_ring_end_frag == 1):
                 # one ring with a non-ring end
-                min_f, max_f = sorted(frag_ids)
-                frag2info[min_f].atoms.extend(frag2info[max_f].atoms)
-                frag2info[min_f].atoms = list(set(frag2info[min_f].atoms))
-                del frag2info[max_f]
+                # min_f, max_f = sorted(frag_ids)
+                f1, f2 = frag_ids
+                if frag2info[f1].ring:
+                    merge_to_f = f1
+                    remove_f = f2
+                else:
+                    merge_to_f = f2
+                    remove_f = f1
+                frag2info[merge_to_f].atoms.extend(frag2info[remove_f].atoms)
+                frag2info[merge_to_f].atoms = list(set(frag2info[merge_to_f].atoms))
+                # frag2info[merge_to_f].ring = True
+                # del frag2info[max_f]
+                frag2info[remove_f].atoms = []
         elif sum(if_ring) == 0:
             # sum(if_ring) == count_ring_non_end_frag:
             # >=3 and no ring fragment
-            if count_non_ring_end_frag == 2:  # only merge all ending fragments (>= 2)
-                frag_ids = [i for i in frag_ids if if_end_fragment[i]]
+            if count_non_ring_end_frag >= 2:  # only merge all ending fragments (>= 2)
+                frag_ids = [frag_id for i, frag_id in enumerate(frag_ids) if if_end_fragment[i]]
                 min_f = frag_ids.pop()
                 for _frag_id in frag_ids:
                     frag2info[min_f].atoms.extend(frag2info[_frag_id].atoms)
-                    del frag2info[_frag_id]
+                    # del frag2info[_frag_id]
+                    frag2info[_frag_id].atoms = []
                 frag2info[min_f].atoms = list(set(frag2info[min_f].atoms))
 
     return frag2info
@@ -155,11 +174,19 @@ def get_smiles(mol):
 
 
 class FragInfo:
-    def __init__(self, frag_id: int, atoms: list = None, smiles: str = '', ring: bool = False):
+    def __init__(self, frag_id: int, atoms: list = None,
+                 smiles: str = '', ring: bool = False, neighbors: list = None):
         self.frag_id = frag_id
-        self.atoms = atoms
+        if atoms is None:
+            self.atoms = []
+        else:
+            self.atoms = atoms
         self.smiles = smiles
         self.ring = ring
+        if neighbors is None:
+            self.neighbors = []
+        else:
+            self.neighbors = neighbors
 
     def __str__(self):
         # https://stackoverflow.com/a/32635523/2803344

@@ -79,7 +79,7 @@ class MolTreeNode(object):
 
 class MolTree(object):
 
-    def __init__(self, smiles, common_atom_merge_ring=3):
+    def __init__(self, smiles, common_atom_merge_ring=3, refragment=False):
         """
 
         :param smiles:
@@ -95,30 +95,40 @@ class MolTree(object):
         # self.smiles2D = Chem.MolToSmiles(mol)
         # self.stereo_cands = decode_stereo(self.smiles2D)
 
-        edges, frag2info = tree_decomp(self.mol, common_atom_merge_ring)
-        self.nodes = []  # node is fragment in graph
-        root = 0
-        for i, atom_info in frag2info.items():  # atoms is a list of atom id
-            # frag_smiles = get_clique_smiles(self.mol, atoms)
-            node = MolTreeNode(frag_smiles=atom_info.smiles, clique=atom_info.atoms)
-            self.nodes.append(node)
-            if min(atom_info.atoms) == 0: root = i
+        edges, frag2info = tree_decomp(self.mol, common_atom_merge_ring, refragment=refragment)
+
+        # add fragment SMILES information
+        for frag_id, frag_info in frag2info.items():
+            frag2info[frag_id].smiles = get_clique_smiles(self.mol, frag_info.atoms)
 
         for x, y in edges:
-            self.nodes[x].add_neighbor(self.nodes[y])
-            self.nodes[y].add_neighbor(self.nodes[x])
+            frag2info[x].append(y)
+            frag2info[y].append(x)
 
-        if root > 0:
-            self.nodes[0], self.nodes[root] = self.nodes[root], self.nodes[0]
+        # self.nodes = {}  # node is fragment in graph
+        # root = 0
+        # for i, atom_info in frag2info.items():  # atoms is a list of atom id
+        #     # frag_smiles = get_clique_smiles(self.mol, atoms)
+        #     node = MolTreeNode(frag_smiles=atom_info.smiles, clique=atom_info.atoms)
+        #     self.nodes[i] = node  #
+        #     if min(atom_info.atoms) == 0:
+        #         root = i
+        # a = 3 + 4
+        # for x, y in edges:
+        #     self.nodes[x].add_neighbor(self.nodes[y])
+        #     self.nodes[y].add_neighbor(self.nodes[x])
 
-        for i, node in enumerate(self.nodes):
-            node.nid = i
-            if len(node.neighbors) > 1:  # Leaf node mol is not marked
-                set_atommap(node.mol, node.nid)
-            node.is_leaf = (len(node.neighbors) == 1)
+        # if root > 0:
+        #     self.nodes[0], self.nodes[root] = self.nodes[root], self.nodes[0]
 
-    def size(self):
-        return len(self.nodes)
+        # for i, node in self.nodes.items():
+        #     node.nid = i
+        #     if len(node.neighbors) > 1:  # Leaf node mol is not marked
+        #         set_atommap(node.mol, node.nid)
+        #     node.is_leaf = (len(node.neighbors) == 1)
+
+    # def size(self):
+    #     return len(self.nodes)
 
     # def recover(self):
     #     for node in self.nodes:
@@ -138,9 +148,31 @@ def dfs(node, fa_idx):
     return max_depth + 1
 
 
+def get_frag2info(mol_smiles, common_atom_merge_ring=3, refragment=False):
+    """
+
+    :param mol_smiles:
+    :param common_atom_merge_ring:
+    :param refragment:
+    :return:
+    """
+    mol = get_mol(mol_smiles)
+    edges, frag2info = tree_decomp(mol, common_atom_merge_ring, refragment=refragment)
+
+    # add fragment SMILES information
+    for frag_id, frag_info in frag2info.items():
+        frag2info[frag_id].smiles = get_clique_smiles(mol, frag_info.atoms)
+
+    for x, y in edges:
+        frag2info[x].neighbors.append(int(y))
+        frag2info[y].neighbors.append(int(x))
+
+    return frag2info
+
+
 def call_mol_tree(raw_data_file, result_dir, log_file, start_line=1,
                   only_fragment=False, common_atom_merge_ring=2,
-                  clip=False, test_mode=False, ignore_existed_cid=True):
+                  clip=False, test_mode=False, ignore_existed_cid=True, refragment=True):
     """
     molecule fragment by tree decomposition
     :param raw_data_file: training set file path,
@@ -154,6 +186,7 @@ def call_mol_tree(raw_data_file, result_dir, log_file, start_line=1,
     :param clip: if need to align all four result files and remove duplicates
     :param test_mode: if use test mode
     :param ignore_existed_cid:
+    :param refragment: change the rules in original paper for fragmentation, in function check_ending_fragment
     :return: four files: cid2mol_smiles.txt, cid2frag_id2frag_smiles.txt, cid2frag_id2neighbors, cid2frag_id2mol_inx.txt
     """
     # result_file = args.result_fn
@@ -170,18 +203,18 @@ def call_mol_tree(raw_data_file, result_dir, log_file, start_line=1,
     # result = pd.DataFrame()
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    for i in range(len(columns)):
-        if not os.path.exists(os.path.join(result_dir, file_names[i])):
-            with open(os.path.join(result_dir, file_names[i]), 'w') as f:
-                f.write('\t'.join(['cid', columns[i]]) + '\n')
+    for frag in range(len(columns)):
+        if not os.path.exists(os.path.join(result_dir, file_names[frag])):
+            with open(os.path.join(result_dir, file_names[frag]), 'w') as f:
+                f.write('\t'.join(['cid', columns[frag]]) + '\n')
     existed_cid = {}
 
     if os.path.exists(os.path.join(result_dir, file_names[-1])) and ignore_existed_cid:
         print('>>> read previous result (cid)...')
         with open(os.path.join(result_dir, file_names[-1]), 'r') as f:
-            for i in tqdm(f):
-                if not i.startswith('cid'):
-                    cid, _ = i.strip().split('\t')
+            for frag in tqdm(f):
+                if not frag.startswith('cid'):
+                    cid, _ = frag.strip().split('\t')
                     existed_cid[int(json.loads(cid))] = 1
         print('    there are {} molecules have been parsed'.format(len(existed_cid)))
 
@@ -209,19 +242,26 @@ def call_mol_tree(raw_data_file, result_dir, log_file, start_line=1,
                     if test_mode:
                         print('>>> current CID: {}'.format(cid))
                         print('>>> current SMILES: {}'.format(smiles))
+                    mol_frag2info = {}
                     try:
-                        mol = MolTree(smiles, common_atom_merge_ring=common_atom_merge_ring)
-                        for i in mol.nodes:
-                            if i not in frag_id2frag_smiles:
-                                frag_id2frag_smiles[i.nid] = ''
-                                frag_id2atom_inx[i.nid] = []
-                            frag_id2frag_smiles[i.nid] = i.smiles
-                            frag_id2atom_inx[i.nid] = i.clique
-                        if not only_fragment:
-                            for node in mol.nodes:
-                                if node not in node2neighbors:
-                                    node2neighbors[node.nid] = []
-                                node2neighbors[node.nid] += [i.nid for i in node.neighbors]
+                        mol_frag2info = get_frag2info(smiles, common_atom_merge_ring=common_atom_merge_ring, refragment=refragment)
+                    except Exception as e:
+                        with open(os.path.join(result_dir, log_file), 'a') as log_f:
+                            log_f.write('mol_tree error, cid: {}'.format(cid) + '\n')
+                        # mol = MolTree(smiles, common_atom_merge_ring=common_atom_merge_ring, refragment=refragment)
+                    if mol_frag2info:
+                        for frag_id, frag in mol_frag2info.items():
+                            # if frag not in frag_id2frag_smiles:
+                            #     frag_id2frag_smiles[frag.nid] = ''
+                            #     frag_id2atom_inx[frag.nid] = []
+                            frag_id2frag_smiles[frag_id] = frag.smiles
+                            frag_id2atom_inx[frag_id] = frag.atoms
+                            node2neighbors[frag_id] = frag.neighbors
+                        # if not only_fragment:
+                        #     for node in mol.nodes:
+                        #         if node not in node2neighbors:
+                        #             node2neighbors[node.nid] = []
+                        #         node2neighbors[node.nid] += [i.nid for i in node.neighbors]
                         if only_fragment:
                             # col2val = {columns[0]: mol_blocks}
                             with open(os.path.join(result_dir, file_names[0]), 'a') as result_f:
@@ -232,34 +272,33 @@ def call_mol_tree(raw_data_file, result_dir, log_file, start_line=1,
                                        columns[2]: node2neighbors, columns[3]: smiles}
                             for j in range(len(columns)):
                                 with open(os.path.join(result_dir, file_names[j]), 'a') as result_f:
-                                    write_str = write_list_by_json([cid, col2val[columns[j]]])
+                                    current_frag_info = col2val[columns[j]]
+                                    write_str = '\t'.join([str(cid), json.dumps(current_frag_info)]) + '\n'
+                                    # write_str = write_list_by_json([cid, col2val[columns[j]]])
                                     result_f.write(write_str)
-                    except Exception as e:
-                        with open(os.path.join(result_dir, log_file), 'a') as log_f:
-                            log_f.write('mol_tree error, cid: {}'.format(cid) + '\n')
             counter += 1
 
         # sort result
         if not only_fragment and clip:
             new_file_names = ['cid2' + i + '_new.txt' for i in columns]
-            for i in range(len(columns)):
-                with open(os.path.join(result_dir, new_file_names[i]), 'w') as f:
-                    f.write('\t'.join(['cid', columns[i]]) + '\n')
+            for frag in range(len(columns)):
+                with open(os.path.join(result_dir, new_file_names[frag]), 'w') as f:
+                    f.write('\t'.join(['cid', columns[frag]]) + '\n')
 
             print('Start to clip all result files...')
             common_cid = _get_common_cid(columns=columns, file_names=file_names, result_dir=result_dir)
             print('>>> There are {} common cids in all result files'.format(len(common_cid)))
             print('>>> Write new ordered results...')
-            for i in range(len(columns)):
+            for frag in range(len(columns)):
                 current_info = {}
-                with open(os.path.join(result_dir, file_names[i]), 'r') as f_handle:
-                    print('>>> Deal with file: {}'.format(file_names[i]))
+                with open(os.path.join(result_dir, file_names[frag]), 'r') as f_handle:
+                    print('>>> Deal with file: {}'.format(file_names[frag]))
                     for line in f_handle:
                         if not line.startswith('cid'):
                             cid, frag_info = line.strip().split('\t')
                             current_info[cid] = frag_info
                 for cid in tqdm(common_cid):
-                    with open(os.path.join(result_dir, new_file_names[i]), 'a') as f_handle:
+                    with open(os.path.join(result_dir, new_file_names[frag]), 'a') as f_handle:
                         # print('>>> Deal with file: {}'.format(new_file_names[i]))
                         f_handle.write('\t'.join([cid, current_info[cid]]) + '\n')
 

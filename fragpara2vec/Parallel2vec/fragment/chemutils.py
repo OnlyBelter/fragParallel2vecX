@@ -23,9 +23,10 @@ def get_edges(n_atoms, frag2info, refragment=False):
     """
     get the relation between each two adjacent fragments
     :param n_atoms:
-    :param frag2atom:
     :param frag2info: fragment id with FragInfo class
-    :param refragment: whether do refragment
+    :param refragment: whether do refragment,
+        algorithm 1 in my paper
+        change the rules in original paper for fragmentation, in function check_ending_fragment
     :return:
     """
     # Build edges and add singleton cliques
@@ -34,40 +35,40 @@ def get_edges(n_atoms, frag2info, refragment=False):
     edges = defaultdict(int)  # https://stackoverflow.com/a/5900628/2803344
     for atom_inx in range(n_atoms):
         frag_inx = atom2frags[atom_inx]
-        # re-fragment
-        if refragment:
-            frag2info = check_ending_fragment(n_atoms=n_atoms, frag_ids=frag_inx, frag2info=frag2info)
-            atom2frags = get_atom2frags(n_atoms=n_atoms, frag2info=frag2info)
-            frag_inx = atom2frags[atom_inx]
-
-        if len(frag_inx) <= 1:  # ignore the atoms only appear in one fragment
-            continue
-        bonds = [c for c in frag_inx if len(frag2info[c].atoms) == 2]  # non-ring fragment contains two atoms, such as [1, 2]
-        rings = [c for c in frag_inx if len(frag2info[c].atoms) > 4]  # > 4 atoms in the fragment
-        if len(bonds) > 2 or (len(bonds) == 2 and len(
-                frag_inx) > 2):  # In general, if len(frag_inx) >= 3, a singleton should be added, but 1 bond + 2 ring is currently not dealt with.
-            # frag2atom[len(frag2atom)] = [atom_inx]
-            # frag2info[len(frag2info)].atoms = [atom_inx]
-            frag_id = len(frag2info)  # singleton clique which appear in more than 3 fragments
-            frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=[atom_inx])
-            c2 = len(frag2info) - 1  # fragment index for new singleton
-            for c1 in frag_inx:
-                edges[(c1, c2)] = 1
-        elif len(rings) > 2:  # appear in multiple complex rings
-            # frag2atom[len(frag2atom)] = [atom_inx]
-            frag_id = len(frag2info)
-            frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=[atom_inx])
-            # frag2info[len(frag2info)].atoms = [atom_inx]
-            c2 = len(frag2info) - 1
-            for c1 in frag_inx:
-                edges[(c1, c2)] = MST_MAX_WEIGHT - 1
-        else:
-            for i in range(len(frag_inx)):
-                for j in range(i + 1, len(frag_inx)):
-                    c1, c2 = frag_inx[i], frag_inx[j]
-                    inter = set(frag2info[c1].atoms) & set(frag2info[c2].atoms)
-                    if edges[(c1, c2)] < len(inter):
-                        edges[(c1, c2)] = len(inter)  # frag_inx[i] < frag_inx[j] by construction
+        if len(frag_inx) >= 2:  # ignore the atoms only appear in one fragment
+            if refragment:  # re-fragment
+                frag2info = check_ending_fragment(n_atoms=n_atoms, frag_ids=frag_inx, frag2info=frag2info)
+                atom2frags = get_atom2frags(n_atoms=n_atoms, frag2info=frag2info)
+                frag_inx = atom2frags[atom_inx]
+            if len(frag_inx) >= 2:
+                # non-ring fragment contains two atoms, such as [1, 2]
+                bonds = [c for c in frag_inx if (not frag2info[c].ring)]
+                rings = [c for c in frag_inx if frag2info[c].ring]  # > 4 atoms in the fragment
+                # In general, if len(frag_inx) >= 3, a singleton should be added,
+                # but 1 bond + 2 ring is currently not dealt with.
+                if len(bonds) > 2 or (len(bonds) == 2 and len(frag_inx) > 2):
+                    # frag2atom[len(frag2atom)] = [atom_inx]
+                    # frag2info[len(frag2info)].atoms = [atom_inx]
+                    frag_id = len(frag2info)  # singleton clique which appear in more than 3 fragments
+                    frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=[atom_inx])
+                    c2 = len(frag2info) - 1  # fragment index for new singleton
+                    for c1 in frag_inx:
+                        edges[(c1, c2)] = 1
+                elif len(rings) > 2:  # appear in multiple complex rings
+                    # frag2atom[len(frag2atom)] = [atom_inx]
+                    frag_id = len(frag2info)
+                    frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=[atom_inx])
+                    # frag2info[len(frag2info)].atoms = [atom_inx]
+                    c2 = len(frag2info) - 1
+                    for c1 in frag_inx:
+                        edges[(c1, c2)] = MST_MAX_WEIGHT - 1
+                else:
+                    for i in range(len(frag_inx)):
+                        for j in range(i + 1, len(frag_inx)):
+                            c1, c2 = frag_inx[i], frag_inx[j]
+                            inter = set(frag2info[c1].atoms) & set(frag2info[c2].atoms)
+                            if edges[(c1, c2)] < len(inter):
+                                edges[(c1, c2)] = len(inter)  # frag_inx[i] < frag_inx[j] by construction
     # [(0, 17, 99), (1, 17, 99), ...] which contain (fragment id, fragment id, weight)
     edges = [u + (MST_MAX_WEIGHT - v,) for u, v in edges.items()]
     if len(edges) == 0:
@@ -80,14 +81,16 @@ def get_edges(n_atoms, frag2info, refragment=False):
     junc_tree = minimum_spanning_tree(clique_graph)
     row, col = junc_tree.nonzero()
     edges = [(row[i], col[i]) for i in range(len(row))]
+    frag2info = {i: j for i, j in frag2info.items() if len(j.atoms) != 0}
     return edges, frag2info  # fragments and the relation between each two fragments
 
 
-def tree_decomp(mol, common_atom_merge_ring=2):
+def tree_decomp(mol, common_atom_merge_ring=2, refragment=False):
     """
 
-    :param mol:
+    :param mol: <class 'rdkit.Chem.rdchem.Mol'> in RDKit
     :param common_atom_merge_ring: 2/3, if the intersection atom between two rings >= this number, merge them
+    :param refragment:
     :return:
     """
     n_atoms = mol.GetNumAtoms()
@@ -135,10 +138,8 @@ def tree_decomp(mol, common_atom_merge_ring=2):
     #     for atom in atom_ids:
     #         atom2frags[atom].append(frag_id)
     # frag2smiles = {}
-    for frag_id, frag_info in frag2info.items():
-        frag2info[frag_id].smiles = get_clique_smiles(mol, frag_info.atoms)
 
-    edges, frag2info = get_edges(n_atoms=n_atoms, frag2info=frag2info)
+    edges, frag2info = get_edges(n_atoms=n_atoms, frag2info=frag2info, refragment=refragment)
     # frag2atom = {i: j.atoms for i, j in frag2info.items()}
     return edges, frag2info
 
