@@ -13,7 +13,7 @@ def save_fig(fig, file_path):
 
 if __name__ == '__main__':
     root_dir = '../../../big_data/'
-    q_frags = ["C1=COCO1", "C1=CCNN=C1", "C1=CCC1", "OBr", "S=S", "C1#CNCC1"]
+    q_frags = ["C1=COCO1", "C1=CCNN=C1", "C1=CCC1", "OBr", "S=S", "C1#CCNCC1"]
     sub_dir1 = '03_fragment'
     frag2md_file_path = os.path.join(root_dir, sub_dir1, 'frag_smiles2md.csv')
     # [i in frag2vec.index for i in q_frags]
@@ -33,7 +33,7 @@ if __name__ == '__main__':
         for minn, maxn in [(0, 0), (1, 2)]:
             print('>>> Deal with minn: ({}), maxn: ({})'.format(minn, maxn))
             frag2vec_file_name = 'frag_smiles2vec_minn_{}_maxn_{}_{}.csv'.format(minn, maxn, frag_sentence_type)
-            model_file_name = '{}2vec_model_minn_{}_maxn_{}.bin'.format(frag_sentence_type, minn, maxn)
+            # model_file_name = '{}2vec_model_minn_{}_maxn_{}.bin'.format(frag_sentence_type, minn, maxn)
             # model_file_name = 'tandem2vec_model.bin'
             frag_smiles2vec_file_path = os.path.join(root_dir, sub_dir2, frag2vec_file_name)
 

@@ -12,6 +12,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.model_selection import StratifiedShuffleSplit
 from .helper_func import get_class_md_combination
+from ..utility import get_ordered_md
 
 
 def split_data_set(down_sampled_file_path, n_min=10, sampling_percentage=0.1):
@@ -84,51 +85,107 @@ def nn_model(x, y, result_dir):
     model.save(os.path.join(result_dir, 'model_2.h5'))
 
 
-def nn_model_regression(x, y, epochs, result_dir, callback=None):
+def nn_model_regression(x, y, epochs, result_dir, callback=None,
+                        frag_type=None, learning_rate=0.001):
     """
     Multivariate regression model
-    model checkpoint: https://www.tensorflow.org/api_docs/python/tf/keras/callbacks/ModelCheckpoint
-    :param x:
-    :param y:
+    :param x: molecular vectors, n x 100
+    :param y: molecular descriptors, n x 9
+    :param epochs:
     :param result_dir:
     :param callback: if using callback function
+    :param frag_type: tandem or parallel
+    :param learning_rate:
     :return:
     """
-    m_part1 = keras.Sequential([keras.layers.Dense(50, activation='selu', input_shape=[x.shape[1]]),
-                                keras.layers.Dense(30, activation='selu'),
-                                keras.layers.Dropout(rate=0.1)])
+    m_part1 = keras.Sequential([
+        keras.layers.Dense(50, activation='selu', input_shape=[x.shape[1]]),
+        keras.layers.Dense(30, activation='selu')
+        # keras.layers.Dropout(rate=0.05)
+    ])
     m_part2 = keras.Sequential([
         keras.layers.Dense(50, activation='selu', input_shape=[30]),
-        keras.layers.Dropout(rate=0.1),
+        # keras.layers.Dropout(rate=0.1),
         keras.layers.Dense(100, activation='selu'),
-        keras.layers.Dropout(rate=0.1),
-        keras.layers.Dense(y.shape[1], activation='softplus')])  # non-negative
+        # keras.layers.Dropout(rate=0.05),
+        # non-negative by softplus
+        keras.layers.Dense(y.shape[1], activation='softplus')])
     model = keras.Sequential([m_part1, m_part2])
-    model.compile(optimizer='rmsprop', loss='mse', metrics=['mse'])
+    opt = keras.optimizers.Adam(learning_rate=learning_rate)
+    # opt = keras.optimizers.RMSprop(learning_rate=learning_rate)
+    model.compile(optimizer=opt, loss='mse', metrics=['mse'])
 
     if callback:
-        # Model weights are saved at the end of every epoch, if it's the best seen
-        # so far.
-        # checkpoint_filepath = os.path.join(result_dir, 'checkpoint', 'chp')
-        # if not os.path.exists(checkpoint_filepath):
-        #     os.makedirs(checkpoint_filepath)
+        # Stop training when a monitored quantity has stopped improving.
         early_stopping_callback = keras.callbacks.EarlyStopping(
-            patience=10,
-            monitor='val_loss',
-            mode='min',
+            patience=30, monitor='val_loss', mode='min',
             restore_best_weights=False)
-        history = model.fit(x, y, epochs=epochs, batch_size=32, verbose=2,
-                            validation_split=0.2, callbacks=[early_stopping_callback])
+        history = model.fit(x, y, epochs=epochs, batch_size=64,
+                            validation_split=0.2, verbose=2,
+                            callbacks=[early_stopping_callback])
 
     else:
-        history = model.fit(x, y, epochs=epochs, batch_size=32, verbose=2, validation_split=0.2)
+        history = model.fit(x, y, epochs=epochs, batch_size=64,
+                            verbose=2, validation_split=0.2)
 
     hist = pd.DataFrame(history.history)
     hist['epoch'] = history.epoch
-    hist.to_csv(os.path.join(result_dir, 'history_reg.csv'))
-    m_part1.save(os.path.join(result_dir, 'm_part1_reg.h5'))
-    model.save(os.path.join(result_dir, 'model_reg.h5'))
+    hist.to_csv(os.path.join(result_dir, 'history_reg_{}.csv'.format(frag_type)))
+    m_part1.save(os.path.join(result_dir, 'm_part1_reg_{}.h5'.format(frag_type)))
+    model.save(os.path.join(result_dir, 'model_reg_{}.h5'.format(frag_type)))
     return m_part1
+
+
+def predict(model_file_path, test_data_file_path, mol2vec_file_path):
+    """
+    Perform prediction with a pre-trained model
+    :param model_file_path:
+    :param test_data_file_path:
+    :return:
+    """
+    # Load signature genes and celltype labels
+    # sig_genes = pd.read_table(self.model_dir + "/genes.txt", index_col=0)
+    # self.sig_genes = list(sig_genes['0'])
+    model = keras.models.load_model(model_file_path)
+    # Predict using loaded model
+    test_data = pd.read_csv(test_data_file_path, index_col=0)
+    mol2vec = pd.read_csv(mol2vec_file_path, index_col=0, header=None)
+    mol2vec_test_data = mol2vec.loc[test_data.index, :]
+    predictions = model.predict(mol2vec_test_data)
+    md = get_ordered_md()
+    pred_df = pd.DataFrame(predictions, index=test_data.index, columns=md)
+    # pred_df.to_csv(out_name, sep="\t")
+    pred_df = pred_df.round(0).astype(int)
+    pred_df = get_class_md_combination(pred_df, min_number=0)
+    return pred_df
+
+
+def evaluate(y_pred, y_true, model_name=None):
+    """
+
+    :param y_pred: dataframe
+    :param y_true: dataframe
+    :return:
+    """
+    class2count = {}
+    n_total = 'n_total_{}'.format(model_name)
+    n_correct = 'n_correct_{}'.format(model_name)
+    for cid in y_true.index:
+        # md_class = y_true.loc[cid, 'md_class']
+        current_y_true = y_true.loc[cid, 'md_class']
+        current_y_pred = y_pred.loc[cid, 'md_class']
+        if current_y_true not in class2count:
+            class2count[current_y_true] = {n_total: 0, n_correct: 0}
+        class2count[current_y_true][n_total] += 1
+        if current_y_pred == current_y_true:
+            class2count[current_y_true][n_correct] += 1
+    result = pd.DataFrame.from_dict(data=class2count, orient='index')
+    result['pred_acc_{}'.format(model_name)] = result[n_correct] / result[n_total]
+    return result
+
+
+def load_pre_trained_model(model_fp):
+    return keras.models.load_model(model_fp)
 
 
 if __name__ == '__main__':

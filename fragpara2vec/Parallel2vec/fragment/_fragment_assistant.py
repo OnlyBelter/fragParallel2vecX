@@ -44,6 +44,7 @@ def get_ring_and_merge(mol, common_atom_merge_ring=2):
                         id2ssr_dup[frag_id_b].extend(id2ssr_dup[frag_id_a])  # merge two rings
                         id2ssr_dup[frag_id_b] = list(set(id2ssr_dup[frag_id_b]))
                         del id2ssr_dup[frag_id_a]  # remove fragment frag_id_b
+                        break
         if id2ssr_dup == id2ssr:
             break
         id2ssr = copy.deepcopy(id2ssr_dup)  # update id2ssr and iteration again
@@ -203,5 +204,5 @@ def get_atom2frags(n_atoms, frag2info):
     atom2frags = {i: [] for i in range(n_atoms)}  # {atom_id: [frag1, frag2], ...}
     for frag_id, frag_info in frag2info.items():
         for atom in frag_info.atoms:
-            atom2frags[atom].append(frag_id)
+            atom2frags[atom].append(int(frag_id))
     return atom2frags

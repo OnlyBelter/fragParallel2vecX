@@ -3,7 +3,8 @@ train molecular vectors by Mol2vec model
 """
 import os
 import pandas as pd
-# from tqdm import tqdm
+import json
+from tqdm import tqdm
 from rdkit import Chem
 from ..utility import insert_unk
 from gensim.models import word2vec
@@ -11,7 +12,7 @@ from joblib import Parallel, delayed
 from .helper_func import train_word2vec_model, mol2alt_sentence
 
 
-def generate_corpus_from_smiles(in_file, out_file, r, sentence_type='alt', n_jobs=1, keep_cid=False):
+def generate_corpus_from_smiles(in_file, out_file, r=1, sentence_type='alt', n_jobs=1, keep_cid=False):
     """
     modified from generate_corpus
     https://mol2vec.readthedocs.io/en/latest/#mol2vec.features.generate_corpus
@@ -26,13 +27,16 @@ def generate_corpus_from_smiles(in_file, out_file, r, sentence_type='alt', n_job
     all_cid = []
     cid2smiles = {}
     with open(in_file, 'r') as f_handle:
-        for each_line in f_handle:
+        for each_line in tqdm(f_handle):
             if ',' in each_line:
                 cid, smiles = each_line.strip().split(',')
             else:
                 cid, smiles = each_line.strip().split('\t')
-            if smiles != 'smiles':
-                cid2smiles[cid] = smiles
+            if cid != 'cid':
+                if '"' in smiles:
+                    cid2smiles[cid] = json.loads(smiles)
+                else:
+                    cid2smiles[cid] = smiles
                 all_cid.append(cid)
     print('>>> the number of unique cid is {}'.format(len(cid2smiles)))
     print('>>> the number of all cid is {}'.format(len(all_cid)))
@@ -43,7 +47,7 @@ def generate_corpus_from_smiles(in_file, out_file, r, sentence_type='alt', n_job
             result = Parallel(n_jobs=n_jobs, verbose=1)(delayed(_parallel_job_new)(cid, cid2smiles[cid], r)
                                                         for cid in all_cid)
         else:
-            result = Parallel(n_jobs=n_jobs, verbose=1)(delayed(_parallel_job)(smiles, r) for smiles in all_cid)
+            result = Parallel(n_jobs=n_jobs, verbose=1)(delayed(_parallel_job)(cid2smiles[cid], r) for cid in all_cid)
         for i, line in enumerate(result):
             with open(out_file, 'a') as f_handle:
                 f_handle.write(str(line) + '\n')

@@ -46,6 +46,7 @@ def get_edges(n_atoms, frag2info, refragment=False):
                 rings = [c for c in frag_inx if frag2info[c].ring]  # > 4 atoms in the fragment
                 # In general, if len(frag_inx) >= 3, a singleton should be added,
                 # but 1 bond + 2 ring is currently not dealt with.
+
                 if len(bonds) > 2 or (len(bonds) == 2 and len(frag_inx) > 2):
                     # frag2atom[len(frag2atom)] = [atom_inx]
                     # frag2info[len(frag2info)].atoms = [atom_inx]
@@ -54,6 +55,7 @@ def get_edges(n_atoms, frag2info, refragment=False):
                     c2 = len(frag2info) - 1  # fragment index for new singleton
                     for c1 in frag_inx:
                         edges[(c1, c2)] = 1
+
                 elif len(rings) > 2:  # appear in multiple complex rings
                     # frag2atom[len(frag2atom)] = [atom_inx]
                     frag_id = len(frag2info)
@@ -114,30 +116,6 @@ def tree_decomp(mol, common_atom_merge_ring=2, refragment=False):
         frag_id = len(frag2info)
         frag2info[frag_id] = FragInfo(frag_id=frag_id, atoms=_ssr, ring=True)
         # frag2atom[len(frag2atom)] = _ssr
-
-    # atom2frags = {i: [] for i in range(n_atoms)}  # {atom_id: [frag1, frag2], ...}
-    # for frag_id, atom_ids in frag2atom.items():
-    #     for atom in atom_ids:
-    #         atom2frags[atom].append(frag_id)
-
-    # # Merge Rings with intersection > 2 atoms
-    # for frag_id_a, atom_ids in frag2atom.items():
-    #     if len(atom_ids) <= 2: continue
-    #     for atom in atom_ids:
-    #         for frag_id_b in atom2frags[atom]:
-    #             if frag_id_a >= frag_id_b or len(frag2atom[frag_id_b]) <= 2: continue
-    #             inter = set(atom_ids) & set(frag2atom[frag_id_b])
-    #             if len(inter) >= common_atom_merge_ring:
-    #                 frag2atom[frag_id_a].extend(frag2atom[frag_id_b])  # merge two rings
-    #                 frag2atom[frag_id_a] = list(set(frag2atom[frag_id_a]))
-    #                 frag2atom[frag_id_b] = []  # remove fragment frag_id_b
-
-    # frag2atom = {f: a for f, a in frag2atom.items() if len(a) > 0}
-    # atom2frags = {i: [] for i in range(n_atoms)}  # reconstruct atom_inx2frag_id
-    # for frag_id, atom_ids in frag2atom.items():
-    #     for atom in atom_ids:
-    #         atom2frags[atom].append(frag_id)
-    # frag2smiles = {}
 
     edges, frag2info = get_edges(n_atoms=n_atoms, frag2info=frag2info, refragment=refragment)
     # frag2atom = {i: j.atoms for i, j in frag2info.items()}

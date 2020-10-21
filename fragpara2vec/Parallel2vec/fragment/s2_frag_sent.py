@@ -12,6 +12,7 @@ $ python s2_frag_sent.py ./demo_data/step1_result.txt ./demo_data --log_fn ./dem
 import os
 import json
 import argparse
+import datetime
 import numpy as np
 from tqdm import tqdm
 import pandas as pd
@@ -20,7 +21,9 @@ import networkx as nx
 from rdkit import Chem
 from rdkit.Chem import Draw
 from .pub_func import write_list_by_json
-from .helper_func import Mol2Network, get_fragment_sentence, count_fragment, Refragment
+from .helper_func import Mol2Network, get_fragment_sentence, count_fragment
+from ._fragment_assistant import get_clique_smiles, get_mol
+from ...utility import grouper
 
 
 def draw_graph(g, file_dir, file_name):
@@ -87,10 +90,9 @@ def writh_log_message(mes, path):
         f.write(mes + '\n')
 
 
-def call_frag2sent(input_file_dir, log_file, arrangement_mode='parallel',
-                   refragment=False, frag2num_fp=None, result_dir=None, test=False):
+def call_frag2sent(input_file_dir, arrangement_mode='parallel',
+                   result_dir=None, test=False, n_line=50000):
     """
-    TODO: remove refragment or improve refragment, cannot work now, 9.26, 2020
     get fragment sentence after fragmentation by tree decomposition
     :param input_file_dir: file dir of molecular fragments information from the first step,
         which contains four files:
@@ -98,39 +100,27 @@ def call_frag2sent(input_file_dir, log_file, arrangement_mode='parallel',
          cid2frag_id2frag_smiles.txt: cid/frag_id2smiles
          cid2frag_id2neighbors: cid/frag_id2neighbors
          cid2frag_id2mol_inx.txt: cid/smiles/frag_id2mol_inx
-    :param log_file: log file name
     :param arrangement_mode: how to arrange fragments in different molecular paths of a single molecule,
         tandem/parallel (parallel is better)
-    :param refragment: whether to use raw fragments or re-fragment
-    :param frag2num_fp: file path of fragment2number from the first step (fragment/count/frequency)
     :param result_dir: result directory
     :param test: Run the entire script on only the first 10 lines and plot
+    :param n_line: read n_line each time
     :return:
     """
-    frag_info_files = ['cid2mol_smiles.txt', 'cid2frag_id2frag_smiles.txt',
-                       'cid2frag_id2neighbors.txt', 'cid2frag_id2mol_inx.txt']
+    frag_info_files = ['cid2mol_smiles.txt', 'cid2edges.txt', 'cid2frag_id2mol_inx.txt']
     testLines = 10
     # min_len = 5
     result_file_prefix = 'tandem'
     # frag2num = pd.DataFrame()
     if arrangement_mode == 'parallel':
         result_file_prefix = 'parallel'
-    if refragment:
-        # TODO: need to generate fragment2frequency before this step
-        print('Refragment will be execute...')
-        result_file_prefix += '_refrag'
-        if frag2num_fp == 'no_input':
-            raise Exception('The file path of fragment2frequency is needed, '
-                            'please set the parameter of --frag2freq_fp')
-        else:
-            frag2num = pd.read_csv(frag2num_fp, index_col=0)
+
     print('Current arrangement mode is: {}'.format(arrangement_mode))
     result_file_cid2frag = os.path.join(result_dir, '{}_cid2smiles_sentence.csv'.format(result_file_prefix))
     result_file_frag2num = os.path.join(result_dir, '{}_frag2num_count.csv'.format(result_file_prefix))
     # frag_id or frag_smiles
     result_file_frag_smiles_sentence = os.path.join(result_dir, '{}_frag_smiles_sentence.csv'.format(result_file_prefix))
 
-    result_file_id2frag_refrag = os.path.join(result_dir, 'id2frag_info_refrag.csv')
     test_fig_dir = ''
     if test:
         test_fig_dir = os.path.join(result_dir, 'test', 'figure')
@@ -138,115 +128,97 @@ def call_frag2sent(input_file_dir, log_file, arrangement_mode='parallel',
             os.makedirs(test_fig_dir)
 
     print('Start to generate fragment sentence by molecular tree...')
+    print('>>> Count previous result...')
     existed_cid = {}
     if os.path.exists(result_file_cid2frag):
-        with open(result_file_cid2frag, 'r') as f:
+        with open(result_file_cid2frag, 'r', encoding='utf-8') as f:
             for line in f:
-                cid, _ = line.strip().split('\t')
-                existed_cid[cid] = 1
+                cid, _ = line.split('\t')
+                existed_cid[int(cid)] = 1
         print('>>> Fragment sentences of {} molecules have been generated'.format(len(existed_cid)))
     counter = 0
-    file_handles = {filename: open(os.path.join(input_file_dir, filename), 'r') for filename in frag_info_files}
+    file2n_lines = {}
+    file_handles = {filename: open(os.path.join(input_file_dir, filename), 'r', encoding='utf-8')
+                    for filename in frag_info_files}
+    for filename, file_handle in file_handles.items():
+        filename = filename.replace('.txt', '')
+        file2n_lines[filename] = grouper(file_handle, n=n_line)
+
     while 1:
         # https://stackoverflow.com/a/46392753/2803344
         if test and counter > testLines:
             break
-        current_row = {}
-        current_cid = {}
-        # cid = None
-        line = None
-        for filename, file in file_handles.items():
-            frag_info_name = filename.replace('.txt', '')
-            line = next(file, None)
-            if line is not None:
-                line = line.strip().split('\t')
-                if line[0] != 'cid':
-                    _cid = line[0]  # json
-                    frag_info = json.loads(line[1])
-                    current_cid[_cid] = 1
-                    current_row[frag_info_name] = frag_info
-            else:
-                file.close()
-        if line is None:
-            break
-        counter += 1
-        if current_cid:
-            if len(current_cid) == 1:
-                cid = json.loads(list(current_cid.keys())[0])
-            else:
-                raise ValueError('CIDs of this line (line {}) in four files are different!'.format(counter))
-            if cid not in existed_cid:
-                SMILES = current_row['cid2mol_smiles']
-                id2smiles = {int(i): j for i, j in current_row['cid2frag_id2frag_smiles'].items()}  # frag_id2smiles
-                n2n = {int(i): j for i, j in current_row['cid2frag_id2neighbors'].items()}  # frag_id2neighbors
-                id2mol_inx = {int(i): j for i, j in current_row['cid2frag_id2mol_inx'].items()}  # frag_id2mol_inx
-                if counter % 100000 == 0 or test:
-                    print('>>> current line: ', counter)
-                    print('>>>CID: {}, SMILES: (line {})'.format(cid, counter), SMILES)
-                network = Mol2Network(smiles=SMILES, n2n=n2n, id2smiles=id2smiles, id2mol_inx=id2mol_inx)
-                # if refragment and (not os.path.exists(result_file_id2frag_refrag)):
-                #     refragment_class = Refragment(network.g, f2f=frag2num, smiles=SMILES)
-                #     refragment_result = refragment_class.update()
-                #     frag2num = refragment_result['f2f']  # update f2n at each iterate
-                #     n2n = refragment_result['n2n']  # update n2n after refragment
-                #     id2smiles = refragment_result['id2smiles']
-                #     id2mol_inx = refragment_result['id2mol_inx']
-                #     network = Mol2Network(smiles=SMILES, n2n=n2n, id2smiles=id2smiles,
-                #                           id2mol_inx=id2mol_inx)
-                #     with open(result_file_id2frag_refrag, 'a') as result_f_refrag:
-                #         write_str = write_list_by_json([cid, SMILES, id2smiles, n2n, id2mol_inx])
-                #         result_f_refrag.write(write_str)
-                if test:
-                    print('    id2smiles: ', id2smiles)
-                    print('    n2n: ', n2n)
-                    draw_graph(network.g, file_dir=test_fig_dir,
-                               file_name='mol_tree_cid:{}_line:{}'.format(cid, counter))
-                    mol = Chem.MolFromSmiles(SMILES)
-                    Draw.MolToFile(mol, os.path.join('big-data', 'figure',
-                                                     'mol_structure_{}.png'.format(counter)))
-                    mol_with_inx = mol_with_atom_index(mol)
-                    Draw.MolToFile(mol_with_inx,
-                                   os.path.join('big-data', 'figure',
-                                                'mol_with_inx_{}.png'.format(counter)))
-                mol_paths_smiles = []
-                try:
+        cid2info = {}
+        lines = None
+        f_cid2frag_sentence = open(result_file_cid2frag, 'a', encoding='utf-8')
+        for filename, n_line in file2n_lines.items():
+            # frag_info_name = filename.replace('.txt', '')
+            lines = next(n_line, None)
+            for line in lines:
+                if line is not None:
+                    line = line.strip().split('\t')
+                    if line[0] != 'cid':
+                        _cid = line[0]  # not json
+                        frag_info = json.loads(line[1])
+                        if int(_cid) not in existed_cid:
+                            if _cid not in cid2info:
+                                cid2info[_cid] = {}
+                            cid2info[_cid][filename] = frag_info
+        if len(cid2info) != 0:
+            for cid, current_row in tqdm(cid2info.items()):
+                if len(current_row) == len(frag_info_files):
+                    mol_smiles = current_row['cid2mol_smiles']  # molecular SMILES
+                    edges = current_row['cid2edges']  # the relation between fragments
+                    # atoms which contained this fragment
+                    frag_id2mol_inx = {int(i): j for i, j in current_row['cid2frag_id2mol_inx'].items()}
+                    if counter % 100000 == 0 or test:
+                        # print('>>> current line: ', counter)
+                        print('>>>CID: {}, SMILES: {}, (line {})'.format(cid, mol_smiles, counter))
+                        print('>>>Current time: {}'.format(datetime.datetime.now()))
+                    network = Mol2Network(smiles=mol_smiles, edges=edges, frag_id2mol_inx=frag_id2mol_inx)
                     mol_paths = network.get_mol_path()  # all mol paths, a list of lists
-                    if counter % 100000 == 0:
+                    if test:
                         print('>>> current line: ', counter)
                         print('    The longest mol path of this molecule: ', mol_paths[0])
-                    for mol_path in mol_paths:  # replace frag_id by smiles
-                        # remove duplicated items, Aug 7, 2020
-                        mol_path_by_smiles = [id2smiles[frag_id] for frag_id in mol_path]
-                        if mol_path_by_smiles not in mol_paths_smiles:
-                            mol_paths_smiles.append(mol_path_by_smiles)
-                except Exception as e:
-                    mol_paths = []
-                    with open(log_file, 'a') as log_f:
-                        log_f.write('getting mol path from network has error, cid: {}'.format(cid) + '\n')
-                if mol_paths_smiles:
-                    mol_sentence = []
-                    with open(result_file_cid2frag, 'a') as f:
+                        print('    id2smiles: ', network.id2smiles)
+                        print('    n2n: ', network.n2n)
+
+                        draw_graph(network.g, file_dir=test_fig_dir,
+                                   file_name='mol_tree_cid:{}_line:{}'.format(cid, counter))
+                        mol = Chem.MolFromSmiles(mol_smiles)
+                        Draw.MolToFile(mol, os.path.join('big-data', 'figure',
+                                                         'mol_structure_{}.png'.format(counter)))
+                        mol_with_inx = mol_with_atom_index(mol)
+                        Draw.MolToFile(mol_with_inx,
+                                       os.path.join('big-data', 'figure',
+                                                    'mol_with_inx_{}.png'.format(counter)))
+                    # except Exception as e:
+                    #     mol_paths = []
+                    #     with open(log_file, 'a') as log_f:
+                    #         log_f.write('getting mol path from network has error, cid: {}'.format(cid) + '\n')
+                    if mol_paths:
+                        mol_sentence = []
                         # mol_path_str = ','.join([str(i) for i in mol_paths])
                         if arrangement_mode == 'tandem':
-                            for mol_ps in mol_paths_smiles:
-                                mol_sentence += mol_ps
+                            for mol_path in mol_paths:  # molecular sentence with fragment SMILES
+                                mol_sentence += [network.id2smiles[frag_id] for frag_id in mol_path]
                             frag_smiles = ','.join(mol_sentence)
-                            f.write('\t'.join([cid, frag_smiles]) + '\n')
+                            f_cid2frag_sentence.write('\t'.join([cid, frag_smiles]) + '\n')
                         elif arrangement_mode == 'parallel':
-                            for mol_ps in mol_paths_smiles:
+                            for mol_path in mol_paths:
                                 # may have multiple sentences for each molecule
-                                one_frag_smiles = '\t'.join([cid, ','.join(mol_ps)])
+                                one_frag_smiles = '\t'.join([cid, ','.join([network.id2smiles[frag_id]
+                                                                            for frag_id in mol_path])])
                                 mol_sentence.append(one_frag_smiles)
-                            f.write('\n'.join(mol_sentence) + '\n')
-                            # for mol_s in mol_sentence:
-                            #     frag_smiles = ','.join(mol_s)
+                            f_cid2frag_sentence.write('\n'.join(mol_sentence) + '\n')
                         else:
                             raise Exception('Only "tandem" or "parallel" is valid for parameter arrangement_mode!')
-                        if counter % 100000 == 0 or test:
-                            # print('>>> current line: ', counter)
-                            print('    Mol sentence: ')
-                            print(mol_sentence)
-                            print('    mol paths: ', mol_paths)
+                counter += 1
+        f_cid2frag_sentence.close()
+        if None in lines:
+            for _, file_handle in file_handles.items():
+                file_handle.close()
+            break
 
     # count fragment frequency
     print('Start to count fragments...')
@@ -267,110 +239,52 @@ def call_frag2sent(input_file_dir, log_file, arrangement_mode='parallel',
         print('>>> frag_smiles_sentence file has existed, this step will omit...')
         print()
 
-    # with open(input_file_dir, 'r') as input_f:
-    #     counter = 0
-    #     for row in input_f:
-    #         if test and counter > testLines:
-    #             break
-    #         row = row.strip().split('\t')
-    #         if row[0] == 'cid':
-    #             current_row = row
-    #         else:
-    #             current_row = [json.loads(i) for i in row]
-    #         try:
-    #             cid = current_row[0]
-    #         except KeyError:
-    #             cid = ''
-    #         if row[0] != 'cid':  # remove the first line
-    #             SMILES = current_row[1]
-    #             id2smiles = {int(i): j for i, j in current_row[2].items()}  # frag_id2smiles
-    #             n2n = {int(i): j for i, j in current_row[3].items()}  # frag_id2neighbors
-    #             id2mol_inx = {int(i): j for i, j in current_row[4].items()}  # frag_id2mol_inx
-    #             if counter % 100000 == 0 or test:
-    #                 print('>>> current line: ', counter)
-    #                 print('>>>CID: {}, SMILES: (line {})'.format(cid, counter), SMILES)
-    #             network = Mol2Network(smiles=SMILES, n2n=n2n, id2smiles=id2smiles, id2mol_inx=id2mol_inx)
-    #             if refragment:
-    #                 refragment_class = Refragment(network.g, f2f=frag2num, smiles=SMILES)
-    #                 refragment_result = refragment_class.update()
-    #                 frag2num = refragment_result['f2f']  # update f2n at each iterate
-    #                 n2n = refragment_result['n2n']  # update n2n after refragment
-    #                 id2smiles = refragment_result['id2smiles']
-    #                 id2mol_inx = refragment_result['id2mol_inx']
-    #                 network = Mol2Network(smiles=SMILES, n2n=n2n, id2smiles=id2smiles,
-    #                                       id2mol_inx=id2mol_inx)
-    #                 if output_id2frag_refrag:
-    #                     with open(result_file_id2frag_refrag, 'a') as result_f_refrag:
-    #                         write_str = write_list_by_json([cid, SMILES, id2smiles, n2n, id2mol_inx])
-    #                         result_f_refrag.write(write_str)
-    #
-    #             if test:
-    #                 print('    id2smiles: ', id2smiles)
-    #                 print('    n2n: ', n2n)
-    #                 draw_graph(network.g, file_dir=test_fig_dir,
-    #                            file_name='mol_tree_cid:{}_line:{}'.format(cid, counter))
-    #                 mol = Chem.MolFromSmiles(SMILES)
-    #                 Draw.MolToFile(mol, os.path.join('big-data', 'figure',
-    #                                                  'mol_structure_{}.png'.format(counter)))
-    #                 mol_with_inx = mol_with_atom_index(mol)
-    #                 Draw.MolToFile(mol_with_inx,
-    #                                os.path.join('big-data', 'figure',
-    #                                             'mol_with_inx_{}.png'.format(counter)))
-    #
-    #             mol_paths_smiles = []
-    #             try:
-    #                 mol_paths = network.get_mol_path()  # all mol paths, a list of lists
-    #                 if counter % 100000 == 0:
-    #                     print('>>> current line: ', counter)
-    #                     print('    The longest mol path of this molecule: ', mol_paths[0])
-    #                 for mol_path in mol_paths:  # replace frag_id by smiles
-    #                     # remove duplicated items, Aug 7, 2020
-    #                     mol_path_by_smiles = [id2smiles[frag_id] for frag_id in mol_path]
-    #                     if mol_path_by_smiles not in mol_paths_smiles:
-    #                         mol_paths_smiles.append(mol_path_by_smiles)
-    #             except Exception as e:
-    #                 with open(log_file, 'a') as log_f:
-    #                     log_f.write('getting mol path from network has error, cid: {}'.format(cid) + '\n')
-    #
-    #             if mol_paths_smiles:
-    #                 mol_sentence = []
-    #
-    #                 with open(result_file_cid2frag, 'a') as f:
-    #                     # mol_path_str = ','.join([str(i) for i in mol_paths])
-    #                     if arrangement_mode == 'tandem':
-    #                         for mol_ps in mol_paths_smiles:
-    #                             mol_sentence += mol_ps
-    #                         frag_smiles = ','.join(mol_sentence)
-    #                         f.write('\t'.join([cid, frag_smiles]) + '\n')
-    #                     elif arrangement_mode == 'parallel':
-    #                         for mol_ps in mol_paths_smiles:
-    #                             # may have multiple sentences for each molecule
-    #                             one_frag_smiles = '\t'.join([cid, ','.join(mol_ps)])
-    #                             mol_sentence.append(one_frag_smiles)
-    #                         f.write('\n'.join(mol_sentence) + '\n')
-    #                         # for mol_s in mol_sentence:
-    #                         #     frag_smiles = ','.join(mol_s)
-    #                     else:
-    #                         raise Exception('Only "tandem" or "parallel" is valid for parameter arrangement_mode!')
-    #                     if counter % 100000 == 0 or test:
-    #                         # print('>>> current line: ', counter)
-    #                         print('    Mol sentence: ')
-    #                         print(mol_sentence)
-    #                         print('    mol paths: ', mol_paths)
-    #         counter += 1
-    # if refragment:
-    #     frag2num.to_csv(os.path.join(result_dir, 'step2_frag2num_new.csv'))
-    #
-    # # count fragment frequency
-    # print('>>> Start to count fragments...')
-    # frag2num_recount = count_fragment(result_file_cid2frag)
-    # frag2num_recount.to_csv(result_file_frag2num, index_label='frag_id')
-    #
-    # # get fragment sentence
-    # print('>>> Start to get sentence separated by space...')
-    # get_fragment_sentence(result_file_frag2num, result_file_cid2frag,
-    #                       result_fp=result_file_cid2frag_id,
-    #                       result_fp2=result_file_frag_smiles_sentence, replace_by_id=False)
+
+def get_tandem_by_parallel(cid2frag_smiles_file_path, result_dir):
+    """
+    generate tandem fragment sentence according to parallel result
+    :param cid2frag_smiles_file_path: cid2frag_smiles file of parallel model
+    :param result_dir:
+    :return:
+    """
+    # frag_info_files = ['cid2mol_smiles.txt', 'cid2edges.txt', 'cid2frag_id2mol_inx.txt']
+    result_file_prefix = 'tandem'
+    result_file_cid2frag = os.path.join(result_dir, '{}_cid2smiles_sentence.csv'.format(result_file_prefix))
+    # result_file_frag2num = os.path.join(result_dir, '{}_frag2num_count.csv'.format(result_file_prefix))
+    # frag_id or frag_smiles
+    result_file_frag_smiles_sentence = os.path.join(result_dir, '{}_frag_smiles_sentence.csv'.format(result_file_prefix))
+
+    with open(cid2frag_smiles_file_path, 'r', encoding='utf-8') as parallel_f:
+        cid2frag_smiles = {}
+        # cids = []
+        cid_counter = 0
+        cid2sentence_f = open(result_file_cid2frag, 'a', encoding='utf-8')
+        sentence_f = open(result_file_frag_smiles_sentence, 'a', encoding='utf-8')
+        for line in tqdm(parallel_f):
+            cid, frag_smiles = line.strip().split('\t')
+            if cid not in cid2frag_smiles:
+                for _cid, _frag_smiles_list in cid2frag_smiles.items():
+                    # _cid is the previous CID instead of current "cid"
+                    cid_counter += 1
+                    mol_sentence = ','.join(_frag_smiles_list)
+                    cid2sentence_f.write('\t'.join([_cid, mol_sentence]) + '\n')
+                    _mol_sentence = mol_sentence.split(',')
+                    sentence_f.write(' '.join(_mol_sentence) + '\n')
+                # cids = []
+                cid2frag_smiles = {cid: []}
+                # cids.append(cid)
+            cid2frag_smiles[cid].append(frag_smiles)
+        print('>>> CID counter: {}'.format(cid_counter))
+        print('>>> Output the last one...')
+        for _cid, _frag_smiles_list in cid2frag_smiles.items():
+            # _cid is the previous CID instead of current "cid"
+            cid_counter += 1
+            mol_sentence = ','.join(_frag_smiles_list)
+            cid2sentence_f.write('\t'.join([_cid, mol_sentence]) + '\n')
+            _mol_sentence = mol_sentence.split(',')
+            sentence_f.write(' '.join(_mol_sentence) + '\n')
+        cid2sentence_f.close()
+        sentence_f.close()
 
 
 if __name__ == '__main__':

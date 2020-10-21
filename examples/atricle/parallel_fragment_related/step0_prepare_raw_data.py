@@ -4,14 +4,13 @@ from fragpara2vec.prepare_data import (call_download_cid2smiles, remove_duplicat
 
 
 if __name__ == '__main__':
-    root_dir = r'F:\result_dir'
+    root_dir = r'F:\result_dir\test3'
     sub_dir = '01_raw_data'
     sub_dir2 = '02_filtered_molecule'
     result_dir_step1 = os.path.join(root_dir, sub_dir)
-    cid_list = [28376780, 16352706, 8536751, 18386381, 9085153,
-                24320025, 8626124, 12012895, 3333305, 14187785,
-                5287182, 20393803, 21401959, 15480910, 25007344,
-                18029384, 4384958, 6468823, 24226358, 19375211]
+    if not os.path.exists(result_dir_step1):
+        os.makedirs(result_dir_step1)
+    cid_list = [12302089]
     interval = 200
     cid2smiles_file_name = 'cid2SMILES.txt'
     cid2smiles_file_path = os.path.join(result_dir_step1, cid2smiles_file_name)

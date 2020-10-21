@@ -165,8 +165,12 @@ def train_fasttext_model(infile_name, outfile_name=None, dim=100, ws=4, min_coun
     model.build_vocab(corpus_file=infile_name)
     print('Count of molecular sentences: {}, count of unique fragment: {}'.format(model.corpus_count, len(model.wv.vocab)))
     print('>>> Start to training model...')
-    model.train(corpus_file=infile_name, total_examples=model.corpus_count,
-                epochs=epoch, total_words=len(model.wv.vocab))
+    abc = model.train(corpus_file=infile_name, total_examples=model.corpus_count,
+                      epochs=epoch, total_words=len(model.wv.vocab))
+    try:
+        print('return values of model training: {}'.format(abc))
+    except:
+        pass
     if outfile_name:
         # fname = get_tmpfile("fasttext.model")
         model.save(outfile_name)

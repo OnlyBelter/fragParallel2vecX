@@ -27,7 +27,7 @@ def get_class_md_combination(frag_info, selected_md=None, min_number=3):
     frag_info = frag_info.loc[:, selected_md].copy()
     frag_info[frag_info >= 1] = 1
     frag2class = pd.DataFrame(columns=['md_class'], index=frag_info.index)
-    frag2class['md_class'] = frag_info.apply(lambda x: ''.join([str(i) for i in tqdm(x)]), axis=1)
+    frag2class['md_class'] = frag_info.apply(lambda x: ''.join([str(i) for i in x]), axis=1)
 
     frag_class2num = {}
     for c in tqdm(frag2class.index):

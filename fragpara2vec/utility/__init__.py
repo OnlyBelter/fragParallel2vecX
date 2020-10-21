@@ -14,10 +14,12 @@ from .pub_func import SELECTED_MD
 from .pub_func import MD_IMPORTANCE
 from .pub_func import get_ordered_md
 from .pub_func import grouper
+from .pub_func import PUBCHEM_BASE_URL
+from .pub_func import query_smiles_by_cids
 
 
 MAIN_ELEMENT = ['C', 'O', 'N', 'H', 'P', 'S', 'Cl', 'F', 'Br', 'I']
-PUBCHEM_BASE_URL = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/property/{}/CSV'
+# PUBCHEM_BASE_URL = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/property/{}/CSV'
 # ELEMENTS = ['S', 'Br', 'O', 'C', 'F', 'P', 'N', 'I', 'Cl', 'H']
 BONDS = ['DOUBLE', 'SINGLE', 'TRIPLE']
 PRMIER_NUM = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]

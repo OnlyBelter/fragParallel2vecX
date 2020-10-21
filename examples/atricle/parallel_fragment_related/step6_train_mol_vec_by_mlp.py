@@ -6,9 +6,10 @@ from tqdm import tqdm
 from fragpara2vec.mlp import query_smiles_by_cid
 from fragpara2vec.Parallel2vec import call_mol_tree
 
-from fragpara2vec.mlp.nn import nn_model_regression, split_data_set
+from fragpara2vec.mlp.nn import nn_model_regression, split_data_set, load_pre_trained_model
 from fragpara2vec.utility import (SELECTED_MD, print_df, find_nearest_neighbor, cal_md_by_smiles,
-                                  draw_multiple_mol, show_each_md, reduce_by_tsne, get_mol_vec)
+                                  draw_multiple_mol, show_each_md, reduce_by_tsne,
+                                  get_mol_vec, grouper, get_ordered_md)
 
 
 def save_fig(fig, file_path):
@@ -96,7 +97,7 @@ if __name__ == '__main__':
     down_sampled_mol_file = 'selected_cid2md_class.csv'
     selected_mol2md_file_path = os.path.join(result_dir, 'selected_cid2md.csv')  # y
 
-    # query the SMILES for down-sampled molecules
+    # query the SMILES for down-sampled molecules by CIDs of selected molecules
     selected_cid2smiles_file_path = os.path.join(result_dir, 'selected_cid2smiles.csv')
     if not os.path.exists(selected_cid2smiles_file_path):
         print('Query the SMILES for down-sampled molecules...')
@@ -106,11 +107,29 @@ if __name__ == '__main__':
                             selected_mol_file_path=down_sampled_mol_file_path,
                             result_file_path=selected_cid2smiles_file_path)
 
-    # calculate MD for selected molecules by SMILES
+    # calculate MD for selected molecules by SMILES, y
     if not os.path.exists(selected_mol2md_file_path):
-        pass
+        print('Calculate MD by molecular SMILES...')
+        smiles2cid = {}
+        with open(selected_cid2smiles_file_path, 'r', encoding='utf-8') as cid2smiles_f_handle:
+            for lines in grouper(cid2smiles_f_handle, n=100000):
+                smiles_list = []
+                for line in lines:
+                    if line is not None:
+                        _cid, _smiles = line.strip().split(',')
+                        if _cid != 'cid':
+                            smiles2cid[_smiles] = _cid
+                            smiles_list.append(_smiles)
+                cid2md = cal_md_by_smiles(smiles_list=smiles_list, molecule_md=True)
+                cid2md['cid'] = cid2md.index.map(smiles2cid)
+                if not os.path.exists(selected_mol2md_file_path):
+                    cid2md.to_csv(selected_mol2md_file_path, index_label='smiles')
+                else:
+                    cid2md.to_csv(selected_mol2md_file_path, header=None, mode='a')
 
-    # fragmentation by tree decomposition
+    # get X
+    # fragmentation by tree decomposition first,
+    # then calculate molecular vector one by one depends on fragments and the vector of fragment
     cid2frag_tree_deco_dir = os.path.join(result_dir, 'tree_decomposition')
     if not os.path.exists(cid2frag_tree_deco_dir):
         os.makedirs(cid2frag_tree_deco_dir)
@@ -120,21 +139,24 @@ if __name__ == '__main__':
         call_mol_tree(raw_data_file=selected_cid2smiles_file_path,
                       result_dir=cid2frag_tree_deco_dir,
                       log_file='errors.log',
+                      refragment=True,  # this should be true
                       only_fragment=True)
-    for frag_type in ['tandem', 'parallel']:
-        mol_vector_file_path = os.path.join(cid2frag_tree_deco_dir, 'mol_vec_{}_frag.csv'.format(frag_type))
-        if not os.path.exists(mol_vector_file_path):
-            print('>>> generate mol2vec by {} fragmentation...'.format(frag_type))
-            if frag_type == 'tandem':
-                _current_subdir = subdir_tandem
-            else:
-                _current_subdir = subdir_parallel
-            frag_vec_file_path = os.path.join(root_dir, _current_subdir,
-                                              'frag_smiles2vec_minn_1_maxn_2_{}.csv'.format(frag_type))
-            print(frag_vec_file_path)
-            get_mol_vec(frag2vec_file_path=frag_vec_file_path,
-                        data_set=cid2frag_smiles_file_path,
-                        result_path=mol_vector_file_path)
+    for frag_type in ['tandem', 'parallel']:  # ['tandem', 'parallel']
+        for minn, maxn in [(1, 2)]:
+            mol_vector_file_path = os.path.join(cid2frag_tree_deco_dir,
+                                                'mol_vec_{}_frag_minn_{}_maxn_{}.csv'.format(frag_type, minn, maxn))
+            if not os.path.exists(mol_vector_file_path):
+                print('>>> generate mol2vec by {} fragmentation...'.format(frag_type))
+                if frag_type == 'tandem':
+                    _current_subdir = subdir_tandem
+                else:
+                    _current_subdir = subdir_parallel
+                frag_vec_file_path = os.path.join(root_dir, _current_subdir,
+                                                  'frag_smiles2vec_minn_{}_maxn_{}_{}.csv'.format(minn, maxn, frag_type))
+                print(frag_vec_file_path)
+                get_mol_vec(frag2vec_file_path=frag_vec_file_path,
+                            data_set=cid2frag_smiles_file_path,
+                            result_path=mol_vector_file_path)
 
     train_set_file_path = os.path.join(result_dir, 'train_set.csv')
     test_set_file_path = os.path.join(result_dir, 'test_set.csv')
@@ -152,4 +174,53 @@ if __name__ == '__main__':
 
     # --------------------------------------------------------------------------------------
     # train model
+    print('Start to train MLP model...')
+    train_set = pd.read_csv(train_set_file_path, index_col='cid')
+    selected_mol2md = pd.read_csv(selected_mol2md_file_path, index_col='cid')
+    md = get_ordered_md()
+    selected_mol2md = selected_mol2md.loc[:, md].copy()
+    y = selected_mol2md.loc[selected_mol2md.index.isin(train_set.index)]
+    for frag_type in ['tandem', 'parallel', 'random']:  # ['tandem', 'parallel']
+        # for minn, maxn in [(1, 3)]:
+        mlp_model_result_dir = os.path.join(result_dir, 'pre_trained_model', frag_type)
+        if not os.path.exists(os.path.join(mlp_model_result_dir, 'model_reg_{}.h5'.format(frag_type))):
+            print('>>> training model of {}'.format(frag_type))
+            # mlp_model_result_dir = os.path.join(result_dir, 'pre_trained_model', frag_type)
+            if not os.path.exists(mlp_model_result_dir):
+                os.makedirs(mlp_model_result_dir)
+            if frag_type != 'random':
+                mol_vec_file_path = os.path.join(cid2frag_tree_deco_dir,
+                                                 'mol_vec_{}_frag_minn_{}_maxn_{}.csv'.format(frag_type, 1, 2))
+                mol_vec = pd.read_csv(mol_vec_file_path, index_col=0, header=None)
+                x = mol_vec.loc[mol_vec.index.isin(train_set.index), :]
+            else:
+                random_mol2vec_file_path = os.path.join(result_dir, frag_type, 'mol_vec_random_frag.csv')
+                if not os.path.exists(random_mol2vec_file_path):
+                    random_mol2vec = pd.DataFrame(data=np.random.random((selected_mol2md.shape[0], 100)),
+                                                  index=selected_mol2md.index)
+                    random_mol2vec.to_csv(random_mol2vec_file_path, header=False)
+                else:
+                    random_mol2vec = pd.read_csv(random_mol2vec_file_path, index_col=0)
+                x = random_mol2vec.loc[train_set.index, :]
+            nn_model_regression(x=x, y=y, epochs=1000, callback=True, learning_rate=0.0002,
+                                result_dir=mlp_model_result_dir, frag_type=frag_type)
 
+    # predict new molecular vectors
+    frag_type = 'tandem'
+    new_mol_vec_file_path = os.path.join(cid2frag_tree_deco_dir,
+                                         'mol_vec_{}_frag_minn_{}_maxn_{}_new_30d.csv'.format(frag_type, 1, 2))
+    if not os.path.exists(new_mol_vec_file_path):
+        print('start to get new mol vector...')
+        mol_vec_file_path = os.path.join(cid2frag_tree_deco_dir,
+                                         'mol_vec_{}_frag_minn_{}_maxn_{}.csv'.format(frag_type, 1, 2))
+        mol_vec = pd.read_csv(mol_vec_file_path, index_col=0, header=None)
+        model_part1_path = os.path.join(result_dir, 'pre_trained_model', frag_type, 'm_part1_reg_{}.h5'.format(frag_type))
+        model_part1 = load_pre_trained_model(model_part1_path)
+        new_mol_vec = model_part1.predict(mol_vec)
+
+        pd.DataFrame(data=new_mol_vec, index=mol_vec.index).to_csv(new_mol_vec_file_path, index_label='cid')
+
+    # for frag_type in ['tandem', 'parallel']:
+    #     print('>>> training model of {}'.format(frag_type))
+    #     mlp_model_result_dir = os.path.join(result_dir, 'pre_trained_model', frag_type)
+    #     _model = None

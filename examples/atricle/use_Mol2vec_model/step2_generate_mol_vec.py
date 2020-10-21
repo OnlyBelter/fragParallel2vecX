@@ -6,7 +6,7 @@ from fragpara2vec.Mol2vec import generate_corpus_from_smiles
 if __name__ == '__main__':
     model_type = 'regression'  # or classification, regression is better
     root_dir = r'F:\github\fragParallel2vecX\big_data'
-    subdir_fragment = r'03_fragment/cid2frag_info'
+    # subdir_fragment = r'03_fragment/cid2frag_info'
     subdir1 = '07_sampling'
     subdir2 = '08_train_mol_vec_by_mlp'
     subdir_tandem = '05_model_Tandem2vec'

@@ -8,11 +8,12 @@ if __name__ == '__main__':
     # use all SMILES in MOSES data-set to train mol2vec model
     # file_path = r'F:\github\fragTandem2vecX\big_data\02_filtered_molecule\cid2SMILES_filtered.txt'
     root_dir = '../../../big_data'
+    # root_dir = r'F:\result_dir\test2'
     # cid_list = '../big-data/all_cid2smiles/step5_x_training_set.csv'
     sub_dir1 = '04_model_Mol2vec'
     # result_file_path1 = os.path.join('../big-data/moses_dataset/nn/parallel/cid2smiles_all_in_train_test.csv')
-    sub_dir2 = '02_filtered_molecule'
-    cid2smiles_fp = os.path.join(root_dir, sub_dir2, 'cid2SMILES_filtered.txt')
+    sub_dir2 = '03_fragment'
+    cid2smiles_fp = os.path.join(root_dir, sub_dir2, 'cid2frag_info', 'cid2mol_smiles.txt')
     result_file_path2 = os.path.join(root_dir, sub_dir1, 'cid2smiles_training_set_coupus.tmp')
     result_file_path3 = os.path.join(root_dir, sub_dir1, 'cid2smiles_training_set_coupus.txt')
     result_file_frag2num = os.path.join(root_dir, sub_dir1, 'Mol2vec_frag_id2num.csv')
@@ -21,7 +22,11 @@ if __name__ == '__main__':
     # step1 generate corpus (sentence)
     print('>>> Generate corpus...')
     if not os.path.exists(result_file_path2):
-        generate_corpus_from_smiles(in_file=cid2smiles_fp, out_file=result_file_path2, r=1, n_jobs=6)
+        try:
+            os.makedirs(os.path.dirname(result_file_path2))
+        except FileExistsError:
+            pass
+        generate_corpus_from_smiles(in_file=cid2smiles_fp, out_file=result_file_path2, r=1, n_jobs=4)
 
     # step2 Handling of uncommon "words"
     print('>>> Handle uncommon fragments...')
@@ -38,7 +43,7 @@ if __name__ == '__main__':
     print('>>> Train fragment vector by Mol2vec model...')
     if not os.path.exists(model_fp):
         train_word2vec_model(infile_name=result_file_path3, outfile_name=model_fp,
-                             vector_size=100, window=10, min_count=3, n_jobs=6, method='cbow')
+                             vector_size=100, window=10, min_count=3, n_jobs=6, method='skip-gram')
 
     # step4 get fragment vector from pre-trained model
     print('>>> Get fragment vector from pre-trained Mol2vec model...')

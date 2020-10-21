@@ -1,14 +1,17 @@
+import io
 import time
+import requests
 import datetime
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import rdkit.Chem as Chem
-from sklearn.manifold import TSNE
 from itertools import zip_longest
+from sklearn.manifold import TSNE
+# from ..utility import PUBCHEM_BASE_URL
 from mordred import Calculator, descriptors
 
 
+PUBCHEM_BASE_URL = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/property/{}/CSV'
 SELECTED_MD = ['nN', 'nP', 'nS', 'nO', 'nX', 'nBondsD', 'nBondsT', 'naRing', 'nARing']
 MD_IMPORTANCE = {'nARing': 0, 'naRing': 1, 'nBondsT': 2, 'nBondsD': 3, 'nO': 4, 'nN': 5, 'nP': 6, 'nS': 7, 'nX': 8}
 
@@ -35,7 +38,7 @@ def cal_md_by_smiles_file(smiles_file_path, n=100000):
     all_results_df.index = all_results_df.index.map()
 
 
-def cal_md_by_smiles(smiles_list, md_list=None, print_info=False,
+def cal_md_by_smiles(smiles_list, md_list=None, print_info=False, molecule_md=False,
                      desc=(descriptors.AtomCount, descriptors.BondCount, descriptors.RingCount)):
     """
     calculate molecular descriptors by Mordred, https://github.com/mordred-descriptor/mordred
@@ -63,14 +66,17 @@ def cal_md_by_smiles(smiles_list, md_list=None, print_info=False,
         # naRing means aromatic ring count, nARing means aliphatic ring count
         md_list = get_ordered_md()
     if print_info:
-        print(md_df)
-        print(smiles_list)
+        print_df(md_df)
+        # print('>>> The length of smiles_list: {}'.format(len(smiles_list)))
     md_df['smiles'] = smiles_list
     md_df = md_df.loc[:, ['smiles'] + md_list].copy()
     if print_info:
         print('  >The shape of smiles_info is: {}'.format(md_df.shape))
-    md_df.rename(columns={'smiles': 'fragment'}, inplace=True)
-    md_df.set_index('fragment', inplace=True)
+    if not molecule_md:
+        md_df.rename(columns={'smiles': 'fragment'}, inplace=True)
+        md_df.set_index('fragment', inplace=True)
+    else:
+        md_df.set_index('smiles', inplace=True)
     return md_df
 
 
@@ -240,6 +246,7 @@ def get_mol_vec(frag2vec_file_path, data_set, result_path):
                 cid, frag_smiles = row.strip().split('\t')  # cid/frag_smiles (or frag_ids)
                 cid_coll[cid] = 1
                 frags = frag_smiles.split(',')
+                # replace rare fragments (occurs in <5 molecules in the whole training set) to UNK
                 frags = [i if i in frag2vec_df.index else 'UNK' for i in frags]
                 cid2vec[cid] = frag2vec_df.loc[frags, :].sum().values
                 if len(cid2vec) == 200000:
@@ -280,3 +287,28 @@ def read_lines(file_path, n=1000):
         for lines in grouper(f, n, ''):
             assert len(lines) == n
             # process N lines here
+
+
+def query_smiles_by_cids(cid_list, mol_property='CanonicalSMILES'):
+    """
+    query SMILES by a CID list through URL
+    only for a small set of CIDs
+    :param cid_list: a list of CID
+    :param mol_property:
+    :return:
+    """
+    if len(cid_list) >= 200:
+        cid_list = cid_list[:200]
+    cids = ','.join([str(i) for i in cid_list])
+    cid2smiles = {}
+    result = requests.get(PUBCHEM_BASE_URL.format(cids, mol_property))
+    if result.status_code == 200:
+        # https://stackoverflow.com/a/32400969/2803344
+        content = result.content
+        c = pd.read_csv(io.StringIO(content.decode('utf-8')))
+        # print(c.to_dict())
+        for i in range(c.shape[0]):
+            cid = c.loc[i, 'CID']
+            prop_value = c.loc[i, mol_property]
+            cid2smiles[cid] = prop_value
+    return cid2smiles

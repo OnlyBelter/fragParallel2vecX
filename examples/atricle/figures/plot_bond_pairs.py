@@ -8,13 +8,18 @@ from fragpara2vec.utility import find_bond_pair, find_aromatic_non_aroma_ring_pa
 
 if __name__ == '__main__':
     root_dir = '../../../big_data'
-    sub_dir = '06_model_Parallel2vec'
+    frag_type = 'parallel'  # tandem or parallel
+    if frag_type == 'tandem':
+        sub_dir = '05_model_Tandem2vec'
+    else:
+        sub_dir = '06_model_Parallel2vec'
     sub_dir_frag = '03_fragment'
     frag_info_file_name = 'frag_smiles2md.csv'
     bond_pair_file = 'bond_pairs.txt'
     frag_info_path = os.path.join(root_dir, sub_dir_frag, frag_info_file_name)
     bond_pair_file_path = os.path.join(root_dir, sub_dir, bond_pair_file)
-    frag_smiles2vec_file_path = os.path.join(root_dir, sub_dir, 'frag_smiles2vec_minn_1_maxn_2_parallel.csv')
+    frag_smiles2vec_file_path = os.path.join(root_dir, sub_dir,
+                                             'frag_smiles2vec_minn_1_maxn_2_{}.csv'.format(frag_type.lower()))
 
     frag_smiles2vec = pd.read_csv(frag_smiles2vec_file_path, index_col=0)
     frag_info = pd.read_csv(frag_info_path, index_col=0)
@@ -22,6 +27,7 @@ if __name__ == '__main__':
     frag_info = frag_info[frag_info.index.isin(frag_smiles2vec.index)]
 
     if not os.path.exists(bond_pair_file_path):
+        print('Start to find bond pairs...')
         with open(bond_pair_file_path, 'w') as f_handle:
             f_handle.write('\t'.join(['frag1', 'frag2', 'bond_type']) + '\n')
 
@@ -57,8 +63,11 @@ if __name__ == '__main__':
     for bond_type in frag_pairs['bond_type'].unique():
         print('>>> Deal with {}...'.format(bond_type))
         plt.figure(figsize=(8, 6))
-        current_frag1 = frag_pairs.loc[frag_pairs['bond_type'] == bond_type, 'frag1']
-        current_frag2 = frag_pairs.loc[frag_pairs['bond_type'] == bond_type, 'frag2']
+        current_bond_pairs = frag_pairs.loc[frag_pairs['bond_type'] == bond_type].copy()
+        if current_bond_pairs.shape[0] > 100:
+            current_bond_pairs = current_bond_pairs.sample(n=100, random_state=42)
+        current_frag1 = current_bond_pairs.loc[:, 'frag1']
+        current_frag2 = current_bond_pairs.loc[:, 'frag2']
         assert current_frag1.shape == current_frag2.shape
         frag1_vec = x_reduced_pca.loc[current_frag1, :]
         frag2_vec = x_reduced_pca.loc[current_frag2, :]
@@ -82,6 +91,6 @@ if __name__ == '__main__':
                      c='g', alpha=0.6, linestyle='dashed')
         plt.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join(root_dir, 'figures', 'chapter3_figures',
+        plt.savefig(os.path.join(root_dir, sub_dir,
                                  '{}_pairs.png'.format(bond_type)), dpi=200)
         plt.close()
