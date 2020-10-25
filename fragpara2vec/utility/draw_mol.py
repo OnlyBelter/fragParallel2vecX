@@ -55,10 +55,13 @@ def draw_multiple_mol(smiles_list, mols_per_row=4, file_path=None, legends=None)
     return img
 
 
-def show_each_md(x_reduced, frag_info):
+def show_each_md(x_reduced, frag_info, trim=False,
+                 md_list=('nARing', 'naRing', 'nBondsT', 'nBondsD')):
     """
-    reduced_x: 2 dimensions x with fragment as index, a dataframe
-    frag_info: the number of each MD with fragemnt as index, a dataframe
+    :param x_reduced: 2 dimensions x with fragment as index, a dataframe
+    :param frag_info: the number of each MD with fragment as index, a dataframe
+    :param md_list: only 4 MD supported
+    :param trim: only top 5 MD number will be showed
     """
     # model = model_name
     fig, ax = plt.subplots(2, 2, figsize=(12, 8))
@@ -67,13 +70,16 @@ def show_each_md(x_reduced, frag_info):
     # print(frag_info.head(2))
     intersect_index = set(x_reduced.index.to_list()) & set(frag_info.index.to_list())
     x_reduced = x_reduced.loc[intersect_index, :].copy()  # alignment
-    frag_info = frag_info.loc[intersect_index, :].copy()
+    frag_info = frag_info.loc[intersect_index, md_list].copy()
     # reduced_x = reduced_x.loc[frag_info.index, :].copy()
     # parallel_frag_info = parallel_frag_info.loc[:, selected_md].copy()
     for i, md in enumerate(frag_info.columns.to_list()):
         # current_labels = parallel_frag_info.iloc[:, i]
         current_labels = frag_info.iloc[:, i]
-        unique_labels = sorted(current_labels.unique())
+        unique_labels = list(sorted(current_labels.unique()))
+        if trim:
+            if len(unique_labels) > 5:
+                unique_labels = unique_labels[:5]
         n_labels = len(unique_labels)
         # print(n_labels)
         cc = sns.color_palette('Blues', n_labels)

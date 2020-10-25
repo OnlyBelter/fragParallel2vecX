@@ -19,7 +19,8 @@ def run_demo():
 
 
 if __name__ == '__main__':
-    root_dir = '../../../big_data/'
+    # root_dir = '../../../big_data/'
+
     # mol_sentence_file_name = 'step2_parallel_frag_smiles_sentence.csv'
     for frag_sentence_type in ['tandem', 'parallel']:
         # frag_sentence_type = 'tandem'  # parallel or tandem

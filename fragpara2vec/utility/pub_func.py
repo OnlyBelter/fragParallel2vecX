@@ -204,13 +204,13 @@ def reduce_by_tsne(x, n_jobs=4):
     t0 = time.time()
     tsne = TSNE(n_components=2, n_jobs=n_jobs, learning_rate=200,
                 n_iter=2000, random_state=42, init='pca', verbose=1)
-    X_reduced_tsne = tsne.fit_transform(x)
+    x_reduced_tsne = tsne.fit_transform(x)
     # X_reduced_tsne = tsne.fit(x)
-    print(X_reduced_tsne.shape)
+    print(x_reduced_tsne.shape)
     # np.save('X_reduced_tsne_pca_first', X_reduced_tsne2)
     t1 = time.time()
     print("t-SNE took {:.1f}s.".format(t1 - t0))
-    return X_reduced_tsne
+    return x_reduced_tsne
 
 
 def get_ordered_md():

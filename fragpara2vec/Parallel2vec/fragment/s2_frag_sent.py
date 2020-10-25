@@ -184,13 +184,13 @@ def call_frag2sent(input_file_dir, arrangement_mode='parallel',
                         print('    n2n: ', network.n2n)
 
                         draw_graph(network.g, file_dir=test_fig_dir,
-                                   file_name='mol_tree_cid:{}_line:{}'.format(cid, counter))
+                                   file_name='mol_tree_cid_{}_line_{}'.format(cid, counter))
                         mol = Chem.MolFromSmiles(mol_smiles)
-                        Draw.MolToFile(mol, os.path.join('big-data', 'figure',
+                        Draw.MolToFile(mol, os.path.join(test_fig_dir,
                                                          'mol_structure_{}.png'.format(counter)))
                         mol_with_inx = mol_with_atom_index(mol)
                         Draw.MolToFile(mol_with_inx,
-                                       os.path.join('big-data', 'figure',
+                                       os.path.join(test_fig_dir,
                                                     'mol_with_inx_{}.png'.format(counter)))
                     # except Exception as e:
                     #     mol_paths = []

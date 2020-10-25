@@ -26,7 +26,8 @@ def run_demo():
 
 if __name__ == '__main__':
     # run_demo()
-    root_dir = '../../../big_data/'
+    # root_dir = '../../../big_data/'
+    root_dir = r'F:\result_dir\test4'
     sub_dir1 = '03_fragment'
     for frag_sentence_type in ['tandem', 'parallel']:
         # frag_sentence_type = 'tandem'  # parallel or tandem
@@ -35,7 +36,7 @@ if __name__ == '__main__':
         else:
             sub_dir2 = '05_model_Tandem2vec'
         mol_sentence_file_name = '{}_frag_smiles_sentence.csv'.format(frag_sentence_type)
-        frag2num_count_file_name = 'frag2num_count.csv'
+        frag2num_count_file_name = 'parallel_frag2num_count.csv'
         # mol_sentence_file_name = 'step2_tandem_frag_smiles_sentence.csv'
 
         # calculate molecular descriptor(MD) of fragments
@@ -45,7 +46,7 @@ if __name__ == '__main__':
             frag_smiles = frag_id2vec.index.to_list()
             # frag_smiles = [i for i in frag_smiles if i != 'UNK']  # remove rare fragment token
             # print(frag_smiles)
-            md = cal_md_by_smiles(frag_smiles, print_info=True)
+            md = cal_md_by_smiles(frag_smiles, print_info=False)
             md.to_csv(frag_smiles2md_fp, index_label='fragment')
 
         mol_sent_file_replace_uncommon_frag = re.sub(r'(\..*)', r'_replaced_uncommon_frag\g<1>', mol_sentence_file_name)
